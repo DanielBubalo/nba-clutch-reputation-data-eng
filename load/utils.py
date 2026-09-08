@@ -18,7 +18,7 @@ def load_table(table_name: str, file_path: str, columns: dict) -> None:
     renamed_columns = ", ".join(f'"{old}" AS {new}' for old, new in columns.items())
 
     with duckdb.connect("nba_clutch.duckdb") as con:
-        con.sql(f"""INSERT INTO {table_name} SELECT {renamed_columns}
+        con.sql(f"""INSERT OR REPLACE INTO {table_name} SELECT {renamed_columns}
                 FROM read_parquet("{file_path}")""")
 
 
@@ -36,7 +36,8 @@ def find_missing_rows(
     missing_ids = fact_table_id.difference(dimension_table_id)
     missing_rows = fact_df[fact_df[fact_column_id].isin(missing_ids)]
     df = missing_rows[[fact_column_id, fact_column_name]]
-    return df
+    unique_df = df.drop_duplicates()
+    return unique_df
 
 
 # Backills any missing fact table players into the the dimension table

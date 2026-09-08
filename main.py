@@ -221,7 +221,7 @@ def main() -> None:
             players_df,
             "PERSON_ID",
             "id",
-            "LAST_NAME",
+            "FULL_NAME",
             "full_name",
             "missing_player_awards",
         )
