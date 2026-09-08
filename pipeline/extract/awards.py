@@ -45,4 +45,5 @@ def player_awards_table(player_id: int) -> pd.DataFrame:
     player_awards_df = player_awards_df[
         player_awards_df["WEEK"].isna() & player_awards_df["MONTH"].isna()
     ]
+    player_awards_df["FULL_NAME"] = player_awards_df["FIRST_NAME"] + " " + player_awards_df["LAST_NAME"]
     return player_awards_df

@@ -12,7 +12,6 @@ from extract.awards import extract_all_player_awards
 from checks import validation, check_mismatch
 from load.utils import save_table, load_table, fill_missing_players
 
-
 def main() -> None:
     # Variables to hold dimension tables
     players_df = players_table()
