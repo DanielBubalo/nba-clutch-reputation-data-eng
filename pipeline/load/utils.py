@@ -1,11 +1,11 @@
 import pandas as pd
 import duckdb
 from pathlib import Path
-
+from paths import cached_data_dir, db_path
 
 # Saves the table of given data and writes the cache file
 def save_table(df: pd.DataFrame, table_name: str) -> Path:
-    cache_dir = Path(f"cached_data/{table_name}")
+    cache_dir = cached_data_dir / table_name
     cache_dir.mkdir(parents=True, exist_ok=True)
     full_path = cache_dir / f"{table_name}.parquet"
     df.to_parquet(full_path, index=False)
@@ -17,7 +17,7 @@ def save_table(df: pd.DataFrame, table_name: str) -> Path:
 def load_table(table_name: str, file_path: str, columns: dict) -> None:
     renamed_columns = ", ".join(f'"{old}" AS {new}' for old, new in columns.items())
 
-    with duckdb.connect("nba_clutch.duckdb") as con:
+    with duckdb.connect(db_path) as con:
         con.sql(f"""INSERT OR REPLACE INTO {table_name} SELECT {renamed_columns}
                 FROM read_parquet("{file_path}")""")
 

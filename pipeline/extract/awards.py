@@ -2,6 +2,7 @@ import pandas as pd
 import time
 import requests
 from pathlib import Path
+from paths import cached_data_dir
 from nba_api.stats.endpoints import PlayerAwards
 
 
@@ -17,10 +18,10 @@ def extract_all_player_awards(
 ) -> pd.DataFrame:
     player_ids = get_unique_player_ids(table, column)
     all_player_data = []
-    path_dir = Path(f"cached_data/awards")
+    path_dir = cached_data_dir / "awards"
     path_dir.mkdir(parents=True, exist_ok=True)
     for player_id in player_ids:
-        file_path = Path(f"cached_data/awards/{file_name}_{player_id}.parquet")
+        file_path = path_dir / f"{file_name}_{player_id}.parquet"
         if (file_path).exists():
             print(f"{player_id} file already there")
             df = pd.read_parquet(file_path)

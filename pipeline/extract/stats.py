@@ -1,6 +1,7 @@
 import pandas as pd
 import time
 from pathlib import Path
+from paths import cached_data_dir
 from nba_api.stats.endpoints import leaguedashplayerstats, leaguedashplayerclutch
 
 
@@ -8,10 +9,10 @@ from nba_api.stats.endpoints import leaguedashplayerstats, leaguedashplayerclutc
 def extract_all_seasons(table, file_name: str) -> pd.DataFrame:
     seasons = [f"{str(season)}-{str(season + 1)[-2:]}" for season in range(2004, 2026)]
     all_season_data = []
-    path_dir = Path(f"cached_data/seasons")
+    path_dir = cached_data_dir / "seasons"
     path_dir.mkdir(parents=True, exist_ok=True)
     for season in seasons:
-        file_path = Path(f"cached_data/seasons/{file_name}_{season}.parquet")
+        file_path = path_dir / f"{file_name}_{season}.parquet"
         if (file_path).exists():
             print(f"{season} file already there")
             df = pd.read_parquet(file_path)
