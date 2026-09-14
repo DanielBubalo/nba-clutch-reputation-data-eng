@@ -72,3 +72,60 @@ Happy modeling!
 [0m14:53:11.072271 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x113c2be10>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x11391c5f0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x113d06030>]}
 [0m14:53:11.072462 [debug] [MainThread]: Flushing usage events
 [0m14:53:11.656729 [debug] [MainThread]: An error was encountered while trying to flush usage events
+[0m12:09:23.770825 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x107c627b0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x109243890>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x1092434d0>]}
+
+
+============================== 12:09:23.773946 | 67742665-1f68-40e6-9a14-10d77ed84386 ==============================
+[0m12:09:23.773946 [info ] [MainThread]: Running with dbt=1.12.3
+[0m12:09:23.774261 [debug] [MainThread]: running dbt with arguments {'target_path': 'None', 'static_parser': 'True', 'quiet': 'False', 'log_format': 'default', 'fail_fast': 'False', 'profiles_dir': '/Users/bubalo/.dbt', 'no_print': 'None', 'debug': 'False', 'log_path': 'logs', 'indirect_selection': 'eager', 'write_json': 'True', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'empty': 'None', 'use_experimental_parser': 'False', 'log_cache_events': 'False', 'send_anonymous_usage_stats': 'True', 'printer_width': '80', 'maximum_seed_size_mib': '1', 'version_check': 'True', 'invocation_command': 'dbt debug', 'introspect': 'True', 'cache_selected_only': 'False', 'warn_error': 'None', 'use_colors': 'True', 'partial_parse': 'True', 'hints_enabled': 'True'}
+[0m12:09:23.783999 [info ] [MainThread]: dbt version: 1.12.3
+[0m12:09:23.784179 [info ] [MainThread]: python version: 3.13.14
+[0m12:09:23.784309 [info ] [MainThread]: python path: /opt/anaconda3/envs/dataeng/bin/python3.13
+[0m12:09:23.784420 [info ] [MainThread]: os info: macOS-26.6.2-arm64-arm-64bit-Mach-O
+[0m12:09:23.903821 [info ] [MainThread]: Using profiles dir at /Users/bubalo/.dbt
+[0m12:09:23.904086 [info ] [MainThread]: Using profiles.yml file at /Users/bubalo/.dbt/profiles.yml
+[0m12:09:23.904219 [info ] [MainThread]: Using dbt_project.yml file at /Users/bubalo/Desktop/data_eng_project/dbt_project.yml
+[0m12:09:23.905434 [info ] [MainThread]: adapter type: duckdb
+[0m12:09:23.905599 [info ] [MainThread]: adapter version: 1.11.0
+[0m12:09:23.905740 [info ] [MainThread]: Configuration:
+[0m12:09:23.905851 [info ] [MainThread]:   profiles.yml file [[32mOK found and valid[0m]
+[0m12:09:23.905959 [info ] [MainThread]:   dbt_project.yml file [[31mERROR not found[0m]
+[0m12:09:23.906061 [info ] [MainThread]: Required dependencies:
+[0m12:09:23.906221 [debug] [MainThread]: Executing "git --help"
+[0m12:09:23.923685 [debug] [MainThread]: STDOUT: "b"usage: git [-v | --version] [-h | --help] [-C <path>] [-c <name>=<value>]\n           [--exec-path[=<path>]] [--html-path] [--man-path] [--info-path]\n           [-p | --paginate | -P | --no-pager] [--no-replace-objects] [--no-lazy-fetch]\n           [--no-optional-locks] [--no-advice] [--bare] [--git-dir=<path>]\n           [--work-tree=<path>] [--namespace=<name>] [--config-env=<name>=<envvar>]\n           <command> [<args>]\n\nThese are common Git commands used in various situations:\n\nstart a working area (see also: git help tutorial)\n   clone      Clone a repository into a new directory\n   init       Create an empty Git repository or reinitialize an existing one\n\nwork on the current change (see also: git help everyday)\n   add        Add file contents to the index\n   mv         Move or rename a file, a directory, or a symlink\n   restore    Restore working tree files\n   rm         Remove files from the working tree and from the index\n\nexamine the history and state (see also: git help revisions)\n   bisect     Use binary search to find the commit that introduced a bug\n   diff       Show changes between commits, commit and working tree, etc\n   grep       Print lines matching a pattern\n   log        Show commit logs\n   show       Show various types of objects\n   status     Show the working tree status\n\ngrow, mark and tweak your common history\n   backfill   Download missing objects in a partial clone\n   branch     List, create, or delete branches\n   commit     Record changes to the repository\n   history    EXPERIMENTAL: Rewrite history\n   merge      Join two or more development histories together\n   rebase     Reapply commits on top of another base tip\n   reset      Set `HEAD` or the index to a known state\n   switch     Switch branches\n   tag        Create, list, delete or verify tags\n\ncollaborate (see also: git help workflows)\n   fetch      Download objects and refs from another repository\n   pull       Fetch from and integrate with another repository or a local branch\n   push       Update remote refs along with associated objects\n\n'git help -a' and 'git help -g' list available subcommands and some\nconcept guides. See 'git help <command>' or 'git help <concept>'\nto read about a specific subcommand or concept.\nSee 'git help git' for an overview of the system.\n""
+[0m12:09:23.924184 [debug] [MainThread]: STDERR: "b''"
+[0m12:09:23.924335 [info ] [MainThread]:  - git [[32mOK found[0m]
+
+[0m12:09:23.924473 [info ] [MainThread]: Connection:
+[0m12:09:23.924620 [info ] [MainThread]:   database: nba_clutch
+[0m12:09:23.924733 [info ] [MainThread]:   schema: main
+[0m12:09:23.924834 [info ] [MainThread]:   path: /Users/bubalo/Desktop/data_eng_project/nba_clutch.duckdb
+[0m12:09:23.924936 [info ] [MainThread]:   config_options: None
+[0m12:09:23.925032 [info ] [MainThread]:   extensions: None
+[0m12:09:23.925130 [info ] [MainThread]:   settings: {}
+[0m12:09:23.925229 [info ] [MainThread]:   external_root: .
+[0m12:09:23.925323 [info ] [MainThread]:   use_credential_provider: None
+[0m12:09:23.925421 [info ] [MainThread]:   attach: None
+[0m12:09:23.925515 [info ] [MainThread]:   filesystems: None
+[0m12:09:23.925609 [info ] [MainThread]:   remote: None
+[0m12:09:23.925708 [info ] [MainThread]:   plugins: None
+[0m12:09:23.925801 [info ] [MainThread]:   disable_transactions: False
+[0m12:09:23.926124 [info ] [MainThread]: Registered adapter: duckdb=1.11.0
+[0m12:09:23.977130 [debug] [MainThread]: Acquiring new duckdb connection 'debug'
+[0m12:09:24.011086 [debug] [MainThread]: Using duckdb connection "debug"
+[0m12:09:24.011297 [debug] [MainThread]: On debug: select 1 as id
+[0m12:09:24.011435 [debug] [MainThread]: Opening a new connection, currently in state init
+[0m12:09:24.028132 [debug] [MainThread]: SQL status: OK in 0.017 seconds
+[0m12:09:24.028735 [debug] [MainThread]: On debug: Close
+[0m12:09:24.029108 [info ] [MainThread]:   Connection test: [[32mOK connection ok[0m]
+
+[0m12:09:24.029272 [info ] [MainThread]: [31m1 check failed:[0m
+[0m12:09:24.029390 [info ] [MainThread]: Project loading failed for the following reason:
+ project path </Users/bubalo/Desktop/data_eng_project/dbt_project.yml> not found
+
+[0m12:09:24.031653 [debug] [MainThread]: Resource report: {"command_name": "debug", "command_success": false, "command_wall_clock_time": 0.30987388, "process_in_blocks": "0", "process_kernel_time": 0.218158, "process_mem_max_rss": "154959872", "process_out_blocks": "0", "process_user_time": 0.795532}
+[0m12:09:24.031918 [debug] [MainThread]: Command `dbt debug` failed at 12:09:24.031858 after 0.31 seconds
+[0m12:09:24.032085 [debug] [MainThread]: Connection 'debug' was properly closed.
+[0m12:09:24.032270 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x109740d60>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x109508b90>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x109415d00>]}
+[0m12:09:24.032485 [debug] [MainThread]: Flushing usage events
+[0m12:09:27.163027 [debug] [MainThread]: An error was encountered while trying to flush usage events

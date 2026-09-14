@@ -37,6 +37,16 @@ def adv_stats_table(season: str) -> pd.DataFrame:
     adv_stats_df["SEASON"] = season
     return adv_stats_df
 
+def basic_stats_table(season: str) -> pd.DataFrame:
+    basic_stats = leaguedashplayerstats.LeagueDashPlayerStats(
+        season=season,
+        measure_type_detailed_defense="Base",
+        season_type_all_star="Regular Season"
+    )
+    basic_stats_df = basic_stats.get_data_frames()[0]
+    basic_stats_df["SEASON"] = season
+    return basic_stats_df
+
 
 # Extracts data from the leaguedashplayerclutch endpoint (advanced clutch stats), per given season
 def clutch_stats_table(season: str) -> pd.DataFrame:
