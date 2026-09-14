@@ -3,6 +3,7 @@ from extract.static import players_table, teams_table
 from extract.stats import (
     extract_all_seasons,
     adv_stats_table,
+    basic_stats_table,
     clutch_stats_table,
     home_stats_table,
     road_stats_table,
@@ -72,6 +73,33 @@ def main() -> None:
         "REB_PCT": "rebound_pct",
     }
     load_table("player_advanced_stats", file_path_adv, adv_stats_columns)
+
+    basic_stats_df = extract_all_seasons(basic_stats_table, "basic_stats")
+
+    if check_mismatch(basic_stats_df, players_df, "PLAYER_ID", "id") == "Fail":
+        players_df = fill_missing_players(
+            basic_stats_df,
+            players_df,
+            "PLAYER_ID",
+            "id",
+            "PLAYER_NAME",
+            "full_name",
+            "missing_players_basic",
+        )
+
+    file_path_basic = save_table(basic_stats_df, "player_basic_stats")
+    basic_stats_columns = {
+        "PLAYER_ID": "player_id",
+        "SEASON": "season",
+        "FGA": "field_goals_attempted",
+        "FG3A": "three_point_field_goals_attempted",
+        "FTA": "free_throws_attempted",
+        "PTS": "points",
+        "REB": "rebounds",
+        "AST": "assists",
+        "PLUS_MINUS": "plus_minus",
+    }
+    load_table("player_basic_stats", file_path_basic, basic_stats_columns)
 
     # Stores the extracted data from every season (clutch_stats)
     clutch_stats_df = extract_all_seasons(clutch_stats_table, "clutch_stats")
