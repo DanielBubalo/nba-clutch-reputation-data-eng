@@ -9,5 +9,12 @@ models:
           - not_null
       - name: group_tier
         data_tests:
-          - accepted_values: 
-              values: ['Role', 'Star', 'Olympic Gold Medalist']
+          - accepted_values:
+              arguments:
+                values: ['Role', 'Star', 'Olympic Gold Medalist']
+  - name: player_clutch_performance
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - player_id
+            - season

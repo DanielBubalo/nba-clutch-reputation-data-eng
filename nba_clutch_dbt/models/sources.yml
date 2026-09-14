@@ -7,6 +7,7 @@ sources:
       - name: players
       - name: teams
       - name: player_advanced_stats
+      - name: player_basic_stats
       - name: clutch_advanced_stats
       - name: home_clutch_stats
       - name: road_clutch_stats
