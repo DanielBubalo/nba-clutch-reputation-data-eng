@@ -1,0 +1,13 @@
+version: 2
+
+models:
+  - name: player_tier
+    columns:
+      - name: player_id
+        data_tests:
+          - unique
+          - not_null
+      - name: group_tier
+        data_tests:
+          - accepted_values: 
+              values: ['Role', 'Star', 'Olympic Gold Medalist']
