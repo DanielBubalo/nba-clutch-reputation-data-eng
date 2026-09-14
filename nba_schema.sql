@@ -28,8 +28,22 @@ CREATE TABLE player_advanced_stats (
     assist_pct DECIMAL,
     rebound_pct DECIMAL,
     PRIMARY KEY (player_id, season),
-    FOREIGN KEY (player_id) REFERENCES players(player_id),
-    FOREIGN KEY (team_id) REFERENCES teams(team_id)
+    FOREIGN KEY (player_id) REFERENCES players (player_id),
+    FOREIGN KEY (team_id) REFERENCES teams (team_id)
+);
+
+CREATE TABLE player_basic_stats (
+    player_id INT,
+    season VARCHAR(7),
+    field_goals_attempted INT,
+    three_point_field_goals_attempted INT,
+    free_throws_attempted INT,
+    points INT,
+    rebounds INT,
+    assists INT,
+    plus_minus DECIMAL,
+    PRIMARY KEY (player_id, season),
+    FOREIGN KEY (player_id) REFERENCES players (player_id)
 );
 
 CREATE TABLE clutch_advanced_stats (
@@ -46,7 +60,7 @@ CREATE TABLE clutch_advanced_stats (
     assist_pct DECIMAL,
     rebound_pct DECIMAL,
     PRIMARY KEY (player_id, season),
-    FOREIGN KEY (player_id) REFERENCES players(player_id)
+    FOREIGN KEY (player_id) REFERENCES players (player_id)
 );
 
 CREATE TABLE home_clutch_stats (
@@ -57,7 +71,7 @@ CREATE TABLE home_clutch_stats (
     net_rating DECIMAL,
     usage_pct DECIMAL,
     PRIMARY KEY (player_id, season),
-    FOREIGN KEY (player_id) REFERENCES players(player_id)
+    FOREIGN KEY (player_id) REFERENCES players (player_id)
 );
 
 CREATE TABLE road_clutch_stats (
@@ -68,7 +82,7 @@ CREATE TABLE road_clutch_stats (
     net_rating DECIMAL,
     usage_pct DECIMAL,
     PRIMARY KEY (player_id, season),
-    FOREIGN KEY (player_id) REFERENCES players(player_id)
+    FOREIGN KEY (player_id) REFERENCES players (player_id)
 );
 
 CREATE TABLE primary_defenders_stats (
@@ -79,8 +93,8 @@ CREATE TABLE primary_defenders_stats (
     defensive_player_name VARCHAR(50),
     matchup_minutes VARCHAR(10),
     PRIMARY KEY (player_id, season, defensive_player_id),
-    FOREIGN KEY (player_id) REFERENCES players(player_id),
-    FOREIGN KEY (defensive_player_id) REFERENCES players(player_id)
+    FOREIGN KEY (player_id) REFERENCES players (player_id),
+    FOREIGN KEY (defensive_player_id) REFERENCES players (player_id)
 );
 
 CREATE TABLE player_awards (
@@ -88,5 +102,5 @@ CREATE TABLE player_awards (
     season VARCHAR(7),
     award VARCHAR(50),
     PRIMARY KEY (player_id, season, award),
-    FOREIGN KEY (player_id) REFERENCES players(player_id)
+    FOREIGN KEY (player_id) REFERENCES players (player_id)
 )
