@@ -15,6 +15,22 @@ models:
   - name: player_clutch_performance
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns:
-            - player_id
-            - season
+          arguments:
+            combination_of_columns:
+              - player_id
+              - season
+  - name: home_vs_road
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - player_id
+              - season
+  - name: matchup_analysis
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - player_id
+              - season
+              - defensive_player_id
