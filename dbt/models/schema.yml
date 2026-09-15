@@ -34,3 +34,10 @@ models:
               - player_id
               - season
               - defensive_player_id
+  - name: star_player_performance
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+             - player_id
+             - season
