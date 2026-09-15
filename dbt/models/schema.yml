@@ -41,3 +41,10 @@ models:
             combination_of_columns:
              - player_id
              - season
+  - name: player_clutch_playmaking
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - player_id
+              - season
