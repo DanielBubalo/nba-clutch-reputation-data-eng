@@ -73,11 +73,13 @@ WITH
             season.plus_minus,
             season.group_tier,
             clutch.true_shooting_pct - season.true_shooting_pct AS ts_delta,
-            clutch.usage_pct - season.usage_pct AS usg_delta
+            clutch.usage_pct - season.usage_pct AS usg_delta,
+            players.player_name
         FROM
             with_tier AS season
             JOIN {{source ('raw', 'clutch_advanced_stats')}} AS clutch ON season.player_id = clutch.player_id
             AND season.season = clutch.season
+            JOIN {{source ('raw', 'players')}} AS players ON season.player_id = players.player_id
         WHERE
             clutch.games_played >= 15
     )
