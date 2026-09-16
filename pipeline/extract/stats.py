@@ -2,7 +2,11 @@ import pandas as pd
 import time
 from pathlib import Path
 from paths import cached_data_dir
-from nba_api.stats.endpoints import leaguedashplayerstats, leaguedashplayerclutch
+from nba_api.stats.endpoints import (
+    leaguedashplayerstats,
+    leaguedashplayerclutch,
+    LeagueDashTeamStats,
+)
 
 
 # Collects the data from the tables below and loops through every season
@@ -37,11 +41,12 @@ def adv_stats_table(season: str) -> pd.DataFrame:
     adv_stats_df["SEASON"] = season
     return adv_stats_df
 
+
 def basic_stats_table(season: str) -> pd.DataFrame:
     basic_stats = leaguedashplayerstats.LeagueDashPlayerStats(
         season=season,
         measure_type_detailed_defense="Base",
-        season_type_all_star="Regular Season"
+        season_type_all_star="Regular Season",
     )
     basic_stats_df = basic_stats.get_data_frames()[0]
     basic_stats_df["SEASON"] = season
@@ -84,3 +89,11 @@ def road_stats_table(season: str) -> pd.DataFrame:
     road_stats_df = road_stats.get_data_frames()[0]
     road_stats_df["SEASON"] = season
     return road_stats_df
+
+
+def team_def_ratings_table(season: str) -> pd.DataFrame:
+    team_def_ratings = LeagueDashTeamStats(
+        season=season,
+        measure_type_detailed_defense="Advanced",
+        season_type_all_star="Regular Season",
+    )

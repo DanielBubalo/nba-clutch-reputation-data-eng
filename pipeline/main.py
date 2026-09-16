@@ -7,8 +7,8 @@ from extract.stats import (
     clutch_stats_table,
     home_stats_table,
     road_stats_table,
+    team_def_ratings_table,
 )
-from extract.shots import extract_all_shots
 from extract.matchups import primary_defenders_table
 from extract.awards import extract_all_player_awards
 from checks import validation, check_mismatch
@@ -263,6 +263,19 @@ def main() -> None:
         "DESCRIPTION": "award",
     }
     load_table("player_awards", file_path_awards, player_awards_columns)
+
+    team_def_ratings_df = extract_all_seasons(
+        team_def_ratings_table, "team_def_ratings"
+    )
+
+    file_path_team_def = save_table(team_def_ratings_df, "team_def_ratings")
+    team_def_ratings_columns = {
+        "TEAM_ID": "team_id",
+        "SEASON": "season",
+        "TEAM_NAME": "team_name",
+        "DEF_RATING": "defensive_rating",
+    }
+    load_table("team_def_ratings", file_path_team_def, team_def_ratings_columns)
 
 
 # Runs the scripts

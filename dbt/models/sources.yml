@@ -14,3 +14,9 @@ sources:
       - name: primary_defenders_stats
       - name: player_awards
       - name: clutch_shots
+        columns:
+          - name: shot_id
+            data_tests:
+              - unique
+              - not_null
+      - name: team_def_ratings
