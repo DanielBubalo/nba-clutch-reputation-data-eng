@@ -2,7 +2,7 @@ import pandas as pd
 import duckdb
 import time
 import requests
-from pathlib import Path
+import json
 from paths import cached_data_dir, db_path
 from nba_api.stats.endpoints import ShotChartDetail
 
@@ -50,7 +50,7 @@ def extract_all_shots(file_name: str) -> pd.DataFrame:
                 df = clutch_shots_table(player_id, season)
                 df.to_parquet(file_path, index=False)
                 time.sleep(0.5)
-            except requests.exceptions.ReadTimeout:
+            except (requests.exceptions.ReadTimeout, json.decoder.JSONDecodeError):
                 print(f"Error pulling {player_id} {season}")
                 continue
         all_shot_data.append(df)

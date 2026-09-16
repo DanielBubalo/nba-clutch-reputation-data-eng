@@ -8,10 +8,12 @@ from extract.stats import (
     home_stats_table,
     road_stats_table,
 )
+from extract.shots import extract_all_shots
 from extract.matchups import primary_defenders_table
 from extract.awards import extract_all_player_awards
 from checks import validation, check_mismatch
 from load.utils import save_table, load_table, fill_missing_players
+
 
 def main() -> None:
     # Variables to hold dimension tables
@@ -261,6 +263,7 @@ def main() -> None:
         "DESCRIPTION": "award",
     }
     load_table("player_awards", file_path_awards, player_awards_columns)
+
 
 # Runs the scripts
 if __name__ == "__main__":

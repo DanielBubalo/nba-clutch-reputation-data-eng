@@ -13,3 +13,4 @@ sources:
       - name: road_clutch_stats
       - name: primary_defenders_stats
       - name: player_awards
+      - name: clutch_shots

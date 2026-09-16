@@ -103,4 +103,20 @@ CREATE TABLE player_awards (
     award VARCHAR(50),
     PRIMARY KEY (player_id, season, award),
     FOREIGN KEY (player_id) REFERENCES players (player_id)
-)
+);
+
+CREATE SEQUENCE clutch_shots_id_seq START 1;
+
+CREATE TABLE clutch_shots (
+    shot_id INT PRIMARY KEY DEFAULT nextval('clutch_shots_id_seq'),
+    game_id VARCHAR(20),
+    player_id INT,
+    player_name VARCHAR(50),
+    season VARCHAR(7),
+    period INT,
+    minutes_remaining INT,
+    loc_x INT,
+    loc_y INT,
+    shot_made_flag INT,
+    FOREIGN KEY (player_id) REFERENCES players (player_id)
+);

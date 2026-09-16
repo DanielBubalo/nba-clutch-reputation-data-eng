@@ -59,3 +59,9 @@ models:
             combination_of_columns:
               - player_id
               - season
+  - name: clutch_shots
+    columns:
+      - name: shot_id
+        data_tests:
+          - unique
+          - not_null
