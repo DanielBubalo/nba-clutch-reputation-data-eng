@@ -2,6 +2,7 @@ version: 2
 
 models:
   - name: player_tier
+    description: "Classifies each player into a reputation tier (Role, Star, or Olympic Gold Medalist) based on career awards."
     columns:
       - name: player_id
         data_tests:
@@ -13,6 +14,12 @@ models:
               arguments:
                 values: ['Role', 'Star', 'Olympic Gold Medalist']
   - name: player_clutch_performance
+    description: "One row per player per season, combining season-long advanced/basic stats with clutch situation stats, filtered to have meaningful sample sizes on both sides."
+    columns:
+      - name: ts_delta
+        description: "Clutch true shooting percentage minus season true shooting percentage. Positive means the player shoots better in the clutch than their season average."
+      - name: usg_delta
+        description: "Clutch usage percentage minus season usage percentage."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -20,6 +27,7 @@ models:
               - player_id
               - season
   - name: home_vs_road
+    description: "One row per player per season, comparing clutch performance at home versus on the road, filtered to players with at least 8 clutch games in each setting."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -27,6 +35,7 @@ models:
               - player_id
               - season
   - name: matchup_analysis
+    description: "One row per primary defender, season, and defender matchup, including the defender's own season defensive rating and the primary player's clutch ts_delta."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -35,6 +44,7 @@ models:
               - season
               - defensive_player_id
   - name: star_player_performance
+    description: "Subset of player_clutch_performance limited to Star and Olympic Gold Medalist tier players, with each player's first award winning season attached."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -42,6 +52,7 @@ models:
              - player_id
              - season
   - name: player_clutch_playmaking
+    description: "player_clutch_performance extended with season long assist and rebound percentages, for comparing playmaking involvement alongside clutch scoring metrics."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
