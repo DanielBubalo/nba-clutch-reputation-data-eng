@@ -118,5 +118,17 @@ CREATE TABLE clutch_shots (
     loc_x INT,
     loc_y INT,
     shot_made_flag INT,
+    team_id INT,
+    home_team_abv VARCHAR,
+    visitor_team_abv VARCHAR,
     FOREIGN KEY (player_id) REFERENCES players (player_id)
+);
+
+CREATE TABLE team_def_ratings (
+    team_id INT,
+    season VARCHAR(7),
+    team_name VARCHAR(50),
+    defensive_rating DECIMAL,
+    PRIMARY KEY (team_id, season),
+    FOREIGN KEY (team_id) REFERENCES teams (team_id)
 );

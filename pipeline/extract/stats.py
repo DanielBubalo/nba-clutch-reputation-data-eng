@@ -97,3 +97,6 @@ def team_def_ratings_table(season: str) -> pd.DataFrame:
         measure_type_detailed_defense="Advanced",
         season_type_all_star="Regular Season",
     )
+    team_def_ratings_df = team_def_ratings.get_data_frames()[0]
+    team_def_ratings_df["SEASON"] = season
+    return team_def_ratings_df

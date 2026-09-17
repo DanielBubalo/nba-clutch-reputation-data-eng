@@ -59,3 +59,10 @@ models:
             combination_of_columns:
               - player_id
               - season
+  - name: shots_with_opponent
+    description: "Clutch shots joined to the shooter's opponent team and that opponent's season defensive rating."
+    columns:
+      - name: shot_id
+        data_tests:
+          - unique
+          - not_null

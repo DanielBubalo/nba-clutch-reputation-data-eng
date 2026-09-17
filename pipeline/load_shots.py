@@ -2,6 +2,7 @@ from extract.shots import extract_all_shots
 from checks import check_mismatch
 from load.utils import save_table, load_table, fill_missing_players
 from extract.static import players_table
+import time
 
 
 def main() -> None:
@@ -31,9 +32,18 @@ def main() -> None:
         "LOC_X": "loc_x",
         "LOC_Y": "loc_y",
         "SHOT_MADE_FLAG": "shot_made_flag",
+        "TEAM_ID": "team_id",
+        "HTM": "home_team_abv",
+        "VTM": "visitor_team_abv",
     }
     load_table("clutch_shots", file_path_clutch_shots, clutch_shots_columns)
 
 
 if __name__ == "__main__":
+    start = time.time()
     main()
+    end = time.time()
+    print(f"Total runtime: {end - start:.2f} seconds")
+
+# Runtime: 6541.67 seconds
+# 1 hour, 49 minutes, 1.67 seconds
