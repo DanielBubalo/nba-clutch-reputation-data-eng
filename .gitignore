@@ -1,4 +1,4 @@
 *.duckdb
 cached_data/
 __pycache__/
-*.pyc
+*.pycairflow/logs/
