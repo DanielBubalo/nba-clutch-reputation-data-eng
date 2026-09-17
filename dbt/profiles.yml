@@ -1,0 +1,13 @@
+nba_clutch_dbt:
+  outputs:
+    dev:
+      type: duckdb
+      path: /opt/airflow/project/nba_clutch.duckdb
+      threads: 1
+
+    prod:
+      type: duckdb
+      path: prod.duckdb
+      threads: 4
+
+  target: dev
