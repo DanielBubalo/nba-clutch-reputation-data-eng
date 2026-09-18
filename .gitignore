@@ -3,3 +3,6 @@ cached_data/
 __pycache__/
 *.pyc
 airflow/logs/
+.DS_Store
+dbt/logs/
+logs/
