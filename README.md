@@ -18,6 +18,9 @@ The pipeline follows a strict ELT pattern with three sequential stages:
 
 All three stages are orchestrated as a single Airflow DAG (`airflow/dags/nba_pipeline.py`), running in a local Docker Compose environment (CeleryExecutor, Postgres, Redis).
 
+scratch/
+    nba_data_load.ipynb — ad-hoc notebook for testing snippets before committing them to the real pipeline scripts
+
 ## Data Sources
 
 All data comes from the unofficial `nba_api` Python package, covering Regular Season data from the 2004-05 season through 2025-26:
