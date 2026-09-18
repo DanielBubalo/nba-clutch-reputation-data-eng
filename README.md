@@ -96,9 +96,3 @@ All models are tested for row-level uniqueness (via `dbt_utils.unique_combinatio
 - **Load strategy is full-reprocess**, not incrementally extracted — every run re-checks all cached data via `INSERT OR REPLACE`, rather than only pulling genuinely new records.
 - **71 of 435,943 clutch shots (0.02%)** have no recorded shot location (`loc_x`/`loc_y` are null in the source data) and were excluded when backfilling team/opponent context onto the shots table.
 - **Current-season handling isn't implemented** — there's no logic to distinguish an in-progress season from a completed one, so a season fetched mid-year would be cached as if final.
-
-## What's Next
-
-- Regenerate `dbt docs` to include all 7 models and their descriptions
-- Final ERD update reflecting the complete model set
-- Build out a real Airflow schedule (currently manual-trigger only) and add retry/timeout handling for known-flaky API calls
