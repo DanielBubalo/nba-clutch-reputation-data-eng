@@ -63,8 +63,8 @@ data_eng_project/
 **Run manually**, in this exact order (each stage depends on the previous one completing):
 ```bash
 python3 pipeline/main.py       # raw extract + load — ~1h49m on a full run, all seasons
-cd dbt && dbt deps --profiles-dir . && dbt build --profiles-dir .
-cd .. && python3 pipeline/load_shots.py   # shot extraction — requires dbt run to have completed at least once
+cd dbt && dbt deps --profiles-dir . && dbt build --profiles-dir .   # installs dbt_utils, then builds all 7 models and runs 12 tests
+cd .. && python3 pipeline/load_shots.py   # shot extraction — requires dbt build to have completed at least once
 ```
 
 **Run via Airflow** (recommended — handles the sequencing automatically):
