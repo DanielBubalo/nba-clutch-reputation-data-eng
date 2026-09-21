@@ -13,13 +13,10 @@ nba_api  →  Python (Extract + Load)  →  DuckDB  →  dbt (Transform)  →  7
 The pipeline follows a strict ELT pattern with three sequential stages:
 
 1. **Extract + Load** (`pipeline/main.py`) — pulls raw data from 8 `nba_api` endpoints across every season from 2004-05 to 2025-26, caches responses as parquet, and loads them into DuckDB as raw tables.
-2. **Transform** (`dbt run`) — builds 7 analysis models on top of the raw tables entirely in SQL.
+2. **Transform** (`dbt build`) — builds 7 analysis models and runs 12 data tests on top of the raw tables entirely in SQL.
 3. **Shot extraction** (`pipeline/load_shots.py`) — pulls clutch shot-chart data, scoped to the ~5,086 player-seasons already qualifying in the `player_clutch_performance` dbt model (rather than every player-season in NBA history). Because this step queries a dbt model, it must run *after* stage 2, not alongside stage 1 — this is why it's a separate script rather than folded into `main.py`.
 
 All three stages are orchestrated as a single Airflow DAG (`airflow/dags/nba_pipeline.py`), running in a local Docker Compose environment (CeleryExecutor, Postgres, Redis).
-
-scratch/
-    nba_data_load.ipynb — ad-hoc notebook for testing snippets before committing them to the real pipeline scripts
 
 ## Data Sources
 
@@ -52,6 +49,8 @@ data_eng_project/
     airflow/
         docker-compose.yaml
         dags/nba_pipeline.py
+    scratch/
+        nba_data_load.ipynb — ad-hoc notebook for testing snippets 
     nba_schema.sql       — full raw table DDL
     nba_clutch.duckdb    — the database itself
     cached_data/         — per-table parquet cache, avoids re-hitting the API on reruns
@@ -64,7 +63,7 @@ data_eng_project/
 **Run manually**, in this exact order (each stage depends on the previous one completing):
 ```bash
 python3 pipeline/main.py       # raw extract + load — ~1h49m on a full run, all seasons
-cd dbt && dbt run              # builds all 7 models
+cd dbt && dbt deps --profiles-dir . && dbt build --profiles-dir .
 cd .. && python3 pipeline/load_shots.py   # shot extraction — requires dbt run to have completed at least once
 ```
 
@@ -74,7 +73,7 @@ cd airflow
 docker compose up airflow-init    # one-time setup
 docker compose up -d              # starts the full stack
 ```
-Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (default login: `airflow` / `airflow`). The DAG runs `main.py → dbt run → load_shots.py` in sequence, matching the dependency order above.
+Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (default login: `airflow` / `airflow`). The DAG runs `main.py → dbt deps → dbt build → load_shots.py` in sequence, matching the dependency order above.
 
 > Note: the Airflow environment installs project dependencies (`nba_api`, `pandas`, `duckdb`, `dbt-core`, `dbt-duckdb`) at container startup via `_PIP_ADDITIONAL_REQUIREMENTS`. This is a quick/dev-only approach — it re-installs on every container restart, which is fine for local development but not intended for production use.
 

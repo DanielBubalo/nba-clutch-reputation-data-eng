@@ -10,7 +10,7 @@ with DAG(
 ) as dag:
     run_dbt = BashOperator(
         task_id="run_dbt",
-        bash_command="cd /opt/airflow/project/dbt && dbt run --profiles-dir /opt/airflow/project/dbt",
+        bash_command="cd /opt/airflow/project/dbt && dbt build --profiles-dir /opt/airflow/project/dbt",
     )
     run_extract = BashOperator(
         task_id="run_extract",
@@ -20,4 +20,8 @@ with DAG(
         task_id="run_load_shots",
         bash_command="cd /opt/airflow/project && python3 pipeline/load_shots.py",
     )
-    run_extract >> run_dbt >> run_load_shots
+    run_dbt_deps = BashOperator(
+        task_id="run_dbt_deps",
+        bash_command="cd /opt/airflow/project/dbt && dbt deps --profiles-dir /opt/airflow/project/dbt",
+    )
+    run_extract >> run_dbt_deps >> run_dbt >> run_load_shots

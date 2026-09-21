@@ -2,7 +2,7 @@ nba_clutch_dbt:
   outputs:
     dev:
       type: duckdb
-      path: /opt/airflow/project/nba_clutch.duckdb
+      path: "{{ env_var('NBA_DB_PATH', '../nba_clutch.duckdb') }}"
       threads: 1
 
     prod:

@@ -76,6 +76,7 @@ x-airflow-common:
     _PIP_ADDITIONAL_REQUIREMENTS: 'nba_api pandas duckdb dbt-core dbt-duckdb'
     # The following line can be used to set a custom config file, stored in the local config folder
     AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
+    NBA_DB_PATH: '/opt/airflow/project/nba_clutch.duckdb'
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/..:/opt/airflow/project
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
