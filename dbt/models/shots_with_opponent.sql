@@ -4,16 +4,16 @@ WITH
             cs.shot_id,
             t.team_id AS home_team_id
         FROM
-            {{source ('raw', 'clutch_shots')}} cs
-            JOIN {{source ('raw', 'teams')}} t ON cs.home_team_abv = t.team_abv
+            {{ref ('stg_clutch_shots')}} cs
+            JOIN {{ref ('stg_teams')}} t ON cs.home_team_abv = t.team_abv
     ),
     visitor_lookup AS (
         SELECT
             cs.shot_id,
             t.team_id AS visitor_team_id
         FROM
-            {{source ('raw', 'clutch_shots')}} cs
-            JOIN {{source ('raw', 'teams')}} t ON cs.visitor_team_abv = t.team_abv
+            {{ref ('stg_clutch_shots')}} cs
+            JOIN {{ref ('stg_teams')}} t ON cs.visitor_team_abv = t.team_abv
     ),
     with_opponent AS (
         SELECT
@@ -32,7 +32,7 @@ WITH
                 ELSE hl.home_team_id
             END AS opponent_team_id
         FROM
-            {{source ('raw', 'clutch_shots')}} cs
+            {{ref ('stg_clutch_shots')}} cs
             JOIN home_lookup hl ON cs.shot_id = hl.shot_id
             JOIN visitor_lookup vl ON cs.shot_id = vl.shot_id
     )
@@ -53,7 +53,7 @@ SELECT
     pcp.group_tier
 FROM
     with_opponent wo
-    JOIN {{source ('raw', 'team_def_ratings')}} tdr ON wo.opponent_team_id = tdr.team_id
+    JOIN {{ref ('stg_team_def_ratings')}} tdr ON wo.opponent_team_id = tdr.team_id
     AND wo.season = tdr.season
     JOIN {{ref ('player_clutch_performance')}} pcp ON wo.player_id = pcp.player_id
     AND wo.season = pcp.season

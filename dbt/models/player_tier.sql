@@ -3,7 +3,7 @@ WITH
         SELECT DISTINCT
             player_id
         FROM
-            {{source ('raw', 'player_awards')}}
+            {{ref ('stg_player_awards')}}
         WHERE
             award IN (
                 'All-NBA',
@@ -17,7 +17,7 @@ WITH
         SELECT DISTINCT
             player_id
         FROM
-            {{source ('raw', 'player_awards')}}
+            {{ref ('stg_player_awards')}}
         WHERE
             award = 'Olympic Gold Medal'
     ),
@@ -35,7 +35,7 @@ WITH
         SELECT
             player_id
         FROM
-            {{source ('raw', 'player_advanced_stats')}}
+            {{ref ('stg_player_advanced_stats')}}
         WHERE
             possessions > 100
     )

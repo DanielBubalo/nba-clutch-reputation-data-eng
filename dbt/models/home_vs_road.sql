@@ -13,8 +13,8 @@ WITH
             road_clutch.usage_pct AS usage_pct_road,
             home_clutch.true_shooting_pct - road_clutch.true_shooting_pct AS ts_home_road_gap
         FROM
-            {{source ('raw', 'home_clutch_stats')}} AS home_clutch
-            JOIN {{source ('raw', 'road_clutch_stats')}} AS road_clutch ON home_clutch.player_id = road_clutch.player_id
+            {{ref ('stg_home_clutch_stats')}} AS home_clutch
+            JOIN {{ref ('stg_road_clutch_stats')}} AS road_clutch ON home_clutch.player_id = road_clutch.player_id
             AND home_clutch.season = road_clutch.season
         WHERE
             home_clutch.games_played >= 8

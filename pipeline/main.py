@@ -26,16 +26,16 @@ def main() -> None:
 
     # Saves and loads the data into the player table
     file_path_players = save_table(players_df, "players")
-    player_columns = {"id": "player_id", "full_name": "player_name"}
+    player_columns = ["id", "full_name"]
     load_table("players", file_path_players, player_columns)
 
     # Saves and loads the data into the teams table
     file_path_teams = save_table(teams_df, "teams")
-    team_columns = {
-        "id": "team_id",
-        "abbreviation": "team_abv",
-        "full_name": "team_name",
-    }
+    team_columns = [
+        "id",
+        "abbreviation",
+        "full_name",
+    ]
     load_table("teams", file_path_teams, team_columns)
 
     # Stores the extracted data from every season (adv_stats_table)
@@ -55,25 +55,25 @@ def main() -> None:
 
     # Saves and loads the data into the player_advanced_stats staging table, renames the column names to fit staging names
     file_path_adv = save_table(adv_stats_df, "player_advanced_stats")
-    adv_stats_columns = {
-        "PLAYER_ID": "player_id",
-        "SEASON": "season",
-        "TEAM_ID": "team_id",
-        "TEAM_ABBREVIATION": "team_abv",
-        "AGE": "age",
-        "GP": "games_played",
-        "MIN": "minutes",
-        "OFF_RATING": "offensive_rating",
-        "DEF_RATING": "defensive_rating",
-        "NET_RATING": "net_rating",
-        "EFG_PCT": "effective_field_goal_pct",
-        "TS_PCT": "true_shooting_pct",
-        "USG_PCT": "usage_pct",
-        "PIE": "player_impact_estimate",
-        "POSS": "possessions",
-        "AST_PCT": "assist_pct",
-        "REB_PCT": "rebound_pct",
-    }
+    adv_stats_columns = [
+        "PLAYER_ID",
+        "SEASON",
+        "TEAM_ID",
+        "TEAM_ABBREVIATION",
+        "AGE",
+        "GP",
+        "MIN",
+        "OFF_RATING",
+        "DEF_RATING",
+        "NET_RATING",
+        "EFG_PCT",
+        "TS_PCT",
+        "USG_PCT",
+        "PIE",
+        "POSS",
+        "AST_PCT",
+        "REB_PCT",
+    ]
     load_table("player_advanced_stats", file_path_adv, adv_stats_columns)
 
     basic_stats_df = extract_all_seasons(basic_stats_table, "basic_stats")
@@ -90,17 +90,17 @@ def main() -> None:
         )
 
     file_path_basic = save_table(basic_stats_df, "player_basic_stats")
-    basic_stats_columns = {
-        "PLAYER_ID": "player_id",
-        "SEASON": "season",
-        "FGA": "field_goals_attempted",
-        "FG3A": "three_point_field_goals_attempted",
-        "FTA": "free_throws_attempted",
-        "PTS": "points",
-        "REB": "rebounds",
-        "AST": "assists",
-        "PLUS_MINUS": "plus_minus",
-    }
+    basic_stats_columns = [
+        "PLAYER_ID",
+        "SEASON",
+        "FGA",
+        "FG3A",
+        "FTA",
+        "PTS",
+        "REB",
+        "AST",
+        "PLUS_MINUS",
+    ]
     load_table("player_basic_stats", file_path_basic, basic_stats_columns)
 
     # Stores the extracted data from every season (clutch_stats)
@@ -120,20 +120,20 @@ def main() -> None:
 
     # Saves and loads the data into the clutch_advanced_stats staging table, renames the column names to fit staging names
     file_path_clutch = save_table(clutch_stats_df, "clutch_advanced_stats")
-    clutch_stats_columns = {
-        "PLAYER_ID": "player_id",
-        "SEASON": "season",
-        "GP": "games_played",
-        "MIN": "minutes",
-        "NET_RATING": "net_rating",
-        "EFG_PCT": "effective_field_goal_pct",
-        "TS_PCT": "true_shooting_pct",
-        "USG_PCT": "usage_pct",
-        "PIE": "player_impact_estimate",
-        "FGA": "field_goals_attempted",
-        "AST_PCT": "assist_pct",
-        "REB_PCT": "rebound_pct",
-    }
+    clutch_stats_columns = [
+        "PLAYER_ID",
+        "SEASON",
+        "GP",
+        "MIN",
+        "NET_RATING",
+        "EFG_PCT",
+        "TS_PCT",
+        "USG_PCT",
+        "PIE",
+        "FGA",
+        "AST_PCT",
+        "REB_PCT",
+    ]
     load_table("clutch_advanced_stats", file_path_clutch, clutch_stats_columns)
 
     # Stores the extracted data from every season (home_stats_table)
@@ -153,14 +153,14 @@ def main() -> None:
 
     # Saves and loads the data into the home_clutch_stats staging table, renames the column names to fit staging names
     file_path_home = save_table(home_stats_df, "home_clutch_stats")
-    home_stats_columns = {
-        "PLAYER_ID": "player_id",
-        "SEASON": "season",
-        "GP": "games_played",
-        "NET_RATING": "net_rating",
-        "TS_PCT": "true_shooting_pct",
-        "USG_PCT": "usage_pct",
-    }
+    home_stats_columns = [
+        "PLAYER_ID",
+        "SEASON",
+        "GP",
+        "NET_RATING",
+        "TS_PCT",
+        "USG_PCT",
+    ]
     load_table("home_clutch_stats", file_path_home, home_stats_columns)
 
     # Stores the extracted data from every season (road_stats_df)
@@ -180,14 +180,14 @@ def main() -> None:
 
     # Saves and loads the data into the road_clutch_stats staging table, renames the column names to fit staging names
     file_path_road = save_table(road_stats_df, "road_clutch_stats")
-    road_stats_columns = {
-        "PLAYER_ID": "player_id",
-        "SEASON": "season",
-        "GP": "games_played",
-        "NET_RATING": "net_rating",
-        "TS_PCT": "true_shooting_pct",
-        "USG_PCT": "usage_pct",
-    }
+    road_stats_columns = [
+        "PLAYER_ID",
+        "SEASON",
+        "GP",
+        "NET_RATING",
+        "TS_PCT",
+        "USG_PCT",
+    ]
     load_table("road_clutch_stats", file_path_road, road_stats_columns)
 
     # Stores the extracted data from every season (primary_defenders_df)
@@ -226,14 +226,14 @@ def main() -> None:
 
     # Saves and loads the data into the primary_defenders_stats staging table, renames the column names to fit staging names
     file_path_defenders = save_table(primary_defenders_df, "primary_defenders_stats")
-    primary_defenders_columns = {
-        "OFF_PLAYER_ID": "player_id",
-        "OFF_PLAYER_NAME": "player_name",
-        "SEASON": "season",
-        "DEF_PLAYER_ID": "defensive_player_id",
-        "DEF_PLAYER_NAME": "defensive_player_name",
-        "MATCHUP_MIN": "matchup_minutes",
-    }
+    primary_defenders_columns = [
+        "OFF_PLAYER_ID",
+        "OFF_PLAYER_NAME",
+        "SEASON",
+        "DEF_PLAYER_ID",
+        "DEF_PLAYER_NAME",
+        "MATCHUP_MIN",
+    ]
     load_table(
         "primary_defenders_stats", file_path_defenders, primary_defenders_columns
     )
@@ -257,11 +257,11 @@ def main() -> None:
 
     # Saves and loads the data into the player_awards staging table, renames the column names to fit staging names
     file_path_awards = save_table(player_awards_df, "player_awards")
-    player_awards_columns = {
-        "PERSON_ID": "player_id",
-        "SEASON": "season",
-        "DESCRIPTION": "award",
-    }
+    player_awards_columns = [
+        "PERSON_ID",
+        "SEASON",
+        "DESCRIPTION",
+    ]
     load_table("player_awards", file_path_awards, player_awards_columns)
 
     team_def_ratings_df = extract_all_seasons(
@@ -269,12 +269,12 @@ def main() -> None:
     )
 
     file_path_team_def = save_table(team_def_ratings_df, "team_def_ratings")
-    team_def_ratings_columns = {
-        "TEAM_ID": "team_id",
-        "SEASON": "season",
-        "TEAM_NAME": "team_name",
-        "DEF_RATING": "defensive_rating",
-    }
+    team_def_ratings_columns = [
+        "TEAM_ID",
+        "SEASON",
+        "TEAM_NAME",
+        "DEF_RATING",
+    ]
     load_table("team_def_ratings", file_path_team_def, team_def_ratings_columns)
 
 

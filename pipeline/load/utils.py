@@ -16,12 +16,11 @@ def save_table(df: pd.DataFrame, table_name: str) -> Path:
 
 # Loads the extracted data into staging table (nba_schema)
 def load_table(table_name: str, file_path: str, columns: dict) -> None:
-    renamed_columns = ", ".join(f'"{old}" AS {new}' for old, new in columns.items())
-    target_columns = ", ".join(columns.values())
+    column_list = ", ".join(f'"{col}"' for col in columns)
 
     with duckdb.connect(db_path) as con:
         con.sql(
-            f"""INSERT OR REPLACE INTO {table_name} ({target_columns}) SELECT {renamed_columns}
+            f"""INSERT OR REPLACE INTO {table_name} ({column_list}) SELECT {column_list}
                 FROM read_parquet("{file_path}")"""
         )
 
@@ -57,16 +56,12 @@ def fill_missing_players(
     missing_players = find_missing_rows(
         fact_df, dimension_df, fact_column_id, dimension_column_id, fact_column_name
     )
-    file_path = save_table(missing_players, file_name)
-    missing_player_columns = {
-        f"{fact_column_id}": "player_id",
-        f"{fact_column_name}": "player_name",
-    }
     rename_missing_players = {
         fact_column_id: f"{dimension_column_id}",
         fact_column_name: f"{dimension_column_name}",
     }
     missing_players_renamed = missing_players.rename(columns=rename_missing_players)
+    file_path = save_table(missing_players_renamed, file_name)
     df = pd.concat([dimension_df, missing_players_renamed])
-    load_table("players", file_path, missing_player_columns)
+    load_table("players", file_path, [dimension_column_id, dimension_column_name])
     return df

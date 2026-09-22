@@ -3,7 +3,7 @@ WITH
         SELECT
             *
         FROM
-            {{source ('raw', 'primary_defenders_stats')}}
+            {{ref ('stg_primary_defenders_stats')}}
     ),
     with_defender_rating AS (
         SELECT
@@ -11,7 +11,7 @@ WITH
             adv.defensive_rating AS defender_defensive_rating
         FROM
             base
-            JOIN {{source ('raw', 'player_advanced_stats')}} AS adv ON base.defensive_player_id = adv.player_id
+            JOIN {{ref ('stg_player_advanced_stats')}} AS adv ON base.defensive_player_id = adv.player_id
             AND base.season = adv.season
     ),
     with_ts_delta AS (

@@ -22,20 +22,20 @@ def main() -> None:
         )
 
     file_path_clutch_shots = save_table(clutch_shots_df, "clutch_shots")
-    clutch_shots_columns = {
-        "PLAYER_ID": "player_id",
-        "SEASON": "season",
-        "GAME_ID": "game_id",
-        "PLAYER_NAME": "player_name",
-        "PERIOD": "period",
-        "MINUTES_REMAINING": "minutes_remaining",
-        "LOC_X": "loc_x",
-        "LOC_Y": "loc_y",
-        "SHOT_MADE_FLAG": "shot_made_flag",
-        "TEAM_ID": "team_id",
-        "HTM": "home_team_abv",
-        "VTM": "visitor_team_abv",
-    }
+    clutch_shots_columns = [
+        "PLAYER_ID",
+        "SEASON",
+        "GAME_ID",
+        "PLAYER_NAME",
+        "PERIOD",
+        "MINUTES_REMAINING",
+        "LOC_X",
+        "LOC_Y",
+        "SHOT_MADE_FLAG",
+        "TEAM_ID",
+        "HTM",
+        "VTM",
+    ]
     load_table("clutch_shots", file_path_clutch_shots, clutch_shots_columns)
 
 

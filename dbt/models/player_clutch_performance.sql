@@ -24,8 +24,8 @@ WITH
             basic.assists,
             basic.plus_minus
         FROM
-            {{source ('raw', 'player_advanced_stats')}} AS adv
-            JOIN {{source ('raw', 'player_basic_stats')}} AS basic ON adv.player_id = basic.player_id
+            {{ref ('stg_player_advanced_stats')}} AS adv
+            JOIN {{ref ('stg_player_basic_stats')}} AS basic ON adv.player_id = basic.player_id
             AND adv.season = basic.season
         WHERE
             basic.field_goals_attempted > 100
@@ -77,9 +77,9 @@ WITH
             players.player_name
         FROM
             with_tier AS season
-            JOIN {{source ('raw', 'clutch_advanced_stats')}} AS clutch ON season.player_id = clutch.player_id
+            JOIN {{ref ('stg_clutch_advanced_stats')}} AS clutch ON season.player_id = clutch.player_id
             AND season.season = clutch.season
-            JOIN {{source ('raw', 'players')}} AS players ON season.player_id = players.player_id
+            JOIN {{ref ('stg_players')}} AS players ON season.player_id = players.player_id
         WHERE
             clutch.games_played >= 15
     )

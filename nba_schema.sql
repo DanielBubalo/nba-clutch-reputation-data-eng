@@ -1,134 +1,134 @@
 CREATE TABLE players (
-    player_id INT PRIMARY KEY,
-    player_name VARCHAR(50) NOT NULL
+    id INT PRIMARY KEY,
+    full_name VARCHAR(50) NOT NULL
 );
 
 CREATE TABLE teams (
-    team_id INT PRIMARY KEY,
-    team_abv CHAR(3),
-    team_name VARCHAR(50) NOT NULL
+    id INT PRIMARY KEY,
+    abbreviation CHAR(3),
+    full_name VARCHAR(50) NOT NULL
 );
 
 CREATE TABLE player_advanced_stats (
-    player_id INT,
-    season VARCHAR(7),
-    team_id INT,
-    team_abv CHAR(3),
-    age INT,
-    games_played INT,
-    minutes DECIMAL,
-    offensive_rating DECIMAL,
-    defensive_rating DECIMAL,
-    net_rating DECIMAL,
-    effective_field_goal_pct DECIMAL,
-    true_shooting_pct DECIMAL,
-    usage_pct DECIMAL,
-    player_impact_estimate DECIMAL,
-    possessions INT,
-    assist_pct DECIMAL,
-    rebound_pct DECIMAL,
-    PRIMARY KEY (player_id, season),
-    FOREIGN KEY (player_id) REFERENCES players (player_id),
-    FOREIGN KEY (team_id) REFERENCES teams (team_id)
+    PLAYER_ID INT,
+    SEASON VARCHAR(7),
+    TEAM_ID INT,
+    TEAM_ABBREVIATION CHAR(3),
+    AGE INT,
+    GP INT,
+    MIN DECIMAL,
+    OFF_RATING DECIMAL,
+    DEF_RATING DECIMAL,
+    NET_RATING DECIMAL,
+    EFG_PCT DECIMAL,
+    TS_PCT DECIMAL,
+    USG_PCT DECIMAL,
+    PIE DECIMAL,
+    POSS INT,
+    AST_PCT DECIMAL,
+    REB_PCT DECIMAL,
+    PRIMARY KEY (PLAYER_ID, SEASON),
+    FOREIGN KEY (PLAYER_ID) REFERENCES players (id),
+    FOREIGN KEY (TEAM_ID) REFERENCES teams (id)
 );
 
 CREATE TABLE player_basic_stats (
-    player_id INT,
-    season VARCHAR(7),
-    field_goals_attempted INT,
-    three_point_field_goals_attempted INT,
-    free_throws_attempted INT,
-    points INT,
-    rebounds INT,
-    assists INT,
-    plus_minus DECIMAL,
-    PRIMARY KEY (player_id, season),
-    FOREIGN KEY (player_id) REFERENCES players (player_id)
+    PLAYER_ID INT,
+    SEASON VARCHAR(7),
+    FGA INT,
+    FG3A INT,
+    FTA INT,
+    PTS INT,
+    REB INT,
+    AST INT,
+    PLUS_MINUS DECIMAL,
+    PRIMARY KEY (PLAYER_ID, SEASON),
+    FOREIGN KEY (PLAYER_ID) REFERENCES players (id)
 );
 
 CREATE TABLE clutch_advanced_stats (
-    player_id INT,
-    season VARCHAR(7),
-    games_played INT,
-    minutes DECIMAL,
-    effective_field_goal_pct DECIMAL,
-    true_shooting_pct DECIMAL,
-    usage_pct DECIMAL,
-    net_rating DECIMAL,
-    player_impact_estimate DECIMAL,
-    field_goals_attempted INT,
-    assist_pct DECIMAL,
-    rebound_pct DECIMAL,
-    PRIMARY KEY (player_id, season),
-    FOREIGN KEY (player_id) REFERENCES players (player_id)
+    PLAYER_ID INT,
+    SEASON VARCHAR(7),
+    GP INT,
+    MIN DECIMAL,
+    EFG_PCT DECIMAL,
+    TS_PCT DECIMAL,
+    USG_PCT DECIMAL,
+    NET_RATING DECIMAL,
+    PIE DECIMAL,
+    FGA INT,
+    AST_PCT DECIMAL,
+    REB_PCT DECIMAL,
+    PRIMARY KEY (PLAYER_ID, SEASON),
+    FOREIGN KEY (PLAYER_ID) REFERENCES players (id)
 );
 
 CREATE TABLE home_clutch_stats (
-    player_id INT,
-    season VARCHAR(7),
-    games_played INT,
-    true_shooting_pct DECIMAL,
-    net_rating DECIMAL,
-    usage_pct DECIMAL,
-    PRIMARY KEY (player_id, season),
-    FOREIGN KEY (player_id) REFERENCES players (player_id)
+    PLAYER_ID INT,
+    SEASON VARCHAR(7),
+    GP INT,
+    TS_PCT DECIMAL,
+    NET_RATING DECIMAL,
+    USG_PCT DECIMAL,
+    PRIMARY KEY (PLAYER_ID, SEASON),
+    FOREIGN KEY (PLAYER_ID) REFERENCES players (id)
 );
 
 CREATE TABLE road_clutch_stats (
-    player_id INT,
-    season VARCHAR(7),
-    games_played INT,
-    true_shooting_pct DECIMAL,
-    net_rating DECIMAL,
-    usage_pct DECIMAL,
-    PRIMARY KEY (player_id, season),
-    FOREIGN KEY (player_id) REFERENCES players (player_id)
+    PLAYER_ID INT,
+    SEASON VARCHAR(7),
+    GP INT,
+    TS_PCT DECIMAL,
+    NET_RATING DECIMAL,
+    USG_PCT DECIMAL,
+    PRIMARY KEY (PLAYER_ID, SEASON),
+    FOREIGN KEY (PLAYER_ID) REFERENCES players (id)
 );
 
 CREATE TABLE primary_defenders_stats (
-    player_id INT,
-    player_name VARCHAR(50),
-    season VARCHAR(7),
-    defensive_player_id INT,
-    defensive_player_name VARCHAR(50),
-    matchup_minutes VARCHAR(10),
-    PRIMARY KEY (player_id, season, defensive_player_id),
-    FOREIGN KEY (player_id) REFERENCES players (player_id),
-    FOREIGN KEY (defensive_player_id) REFERENCES players (player_id)
+    OFF_PLAYER_ID INT,
+    OFF_PLAYER_NAME VARCHAR(50),
+    SEASON VARCHAR(7),
+    DEF_PLAYER_ID INT,
+    DEF_PLAYER_NAME VARCHAR(50),
+    MATCHUP_MIN VARCHAR(10),
+    PRIMARY KEY (OFF_PLAYER_ID, SEASON, DEF_PLAYER_ID),
+    FOREIGN KEY (OFF_PLAYER_ID) REFERENCES players (id),
+    FOREIGN KEY (DEF_PLAYER_ID) REFERENCES players (id)
 );
 
 CREATE TABLE player_awards (
-    player_id INT,
-    season VARCHAR(7),
-    award VARCHAR(50),
-    PRIMARY KEY (player_id, season, award),
-    FOREIGN KEY (player_id) REFERENCES players (player_id)
+    PERSON_ID INT,
+    SEASON VARCHAR(7),
+    DESCRIPTION VARCHAR(50),
+    PRIMARY KEY (PERSON_ID, SEASON, DESCRIPTION),
+    FOREIGN KEY (PERSON_ID) REFERENCES players (id)
 );
 
 CREATE SEQUENCE clutch_shots_id_seq START 1;
 
 CREATE TABLE clutch_shots (
     shot_id INT PRIMARY KEY DEFAULT nextval('clutch_shots_id_seq'),
-    game_id VARCHAR(20),
-    player_id INT,
-    player_name VARCHAR(50),
-    season VARCHAR(7),
-    period INT,
-    minutes_remaining INT,
-    loc_x INT,
-    loc_y INT,
-    shot_made_flag INT,
-    team_id INT,
-    home_team_abv VARCHAR,
-    visitor_team_abv VARCHAR,
-    FOREIGN KEY (player_id) REFERENCES players (player_id)
+    GAME_ID VARCHAR(20),
+    PLAYER_ID INT,
+    PLAYER_NAME VARCHAR(50),
+    SEASON VARCHAR(7),
+    PERIOD INT,
+    MINUTES_REMAINING INT,
+    LOC_X INT,
+    LOC_Y INT,
+    SHOT_MADE_FLAG INT,
+    TEAM_ID INT,
+    HTM VARCHAR,
+    VTM VARCHAR,
+    FOREIGN KEY (PLAYER_ID) REFERENCES players (id)
 );
 
 CREATE TABLE team_def_ratings (
-    team_id INT,
-    season VARCHAR(7),
-    team_name VARCHAR(50),
-    defensive_rating DECIMAL,
-    PRIMARY KEY (team_id, season),
-    FOREIGN KEY (team_id) REFERENCES teams (team_id)
+    TEAM_ID INT,
+    SEASON VARCHAR(7),
+    TEAM_NAME VARCHAR(50),
+    DEF_RATING DECIMAL,
+    PRIMARY KEY (TEAM_ID, SEASON),
+    FOREIGN KEY (TEAM_ID) REFERENCES teams (id)
 );

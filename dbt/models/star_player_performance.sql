@@ -12,7 +12,7 @@ WITH
             player_id,
             MIN(season) AS first_award_season
         FROM
-            {{source ('raw', 'player_awards')}}
+            {{ref ('stg_player_awards')}}
         WHERE
             LENGTH(season) = 7
         GROUP BY

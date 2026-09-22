@@ -66,3 +66,90 @@ models:
         data_tests:
           - unique
           - not_null
+  - name: stg_players
+    description: "Staging model for the raw players table: renames id to player_id and full_name to player_name."
+    columns:
+      - name: player_id
+        data_tests:
+          - unique
+          - not_null
+  - name: stg_teams
+    description: "Staging model for the raw teams table: renames id to team_id, abbreviation to team_abv, and full_name to team_name."
+    columns:
+      - name: team_id
+        data_tests:
+          - unique
+          - not_null
+  - name: stg_player_advanced_stats
+    description: "Staging model for the raw player_advanced_stats table: renames raw uppercase API field names to their friendly lowercase equivalents."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - player_id
+              - season
+  - name: stg_player_basic_stats
+    description: "Staging model for the raw player_basic_stats table: renames raw uppercase API field names to their friendly lowercase equivalents."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - player_id
+              - season
+  - name: stg_clutch_advanced_stats
+    description: "Staging model for the raw clutch_advanced_stats table: renames raw uppercase API field names to their friendly lowercase equivalents."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - player_id
+              - season
+  - name: stg_home_clutch_stats
+    description: "Staging model for the raw home_clutch_stats table: renames raw uppercase API field names to their friendly lowercase equivalents."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - player_id
+              - season
+  - name: stg_road_clutch_stats
+    description: "Staging model for the raw road_clutch_stats table: renames raw uppercase API field names to their friendly lowercase equivalents."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - player_id
+              - season
+  - name: stg_primary_defenders_stats
+    description: "Staging model for the raw primary_defenders_stats table: renames OFF_PLAYER_ID/OFF_PLAYER_NAME to player_id/player_name and DEF_PLAYER_ID/DEF_PLAYER_NAME to defensive_player_id/defensive_player_name."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - player_id
+              - season
+              - defensive_player_id
+  - name: stg_player_awards
+    description: "Staging model for the raw player_awards table: renames PERSON_ID to player_id and DESCRIPTION to award."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - player_id
+              - season
+              - award
+  - name: stg_clutch_shots
+    description: "Staging model for the raw clutch_shots table: renames raw uppercase API field names to their friendly lowercase equivalents; shot_id passes through unchanged."
+    columns:
+      - name: shot_id
+        data_tests:
+          - unique
+          - not_null
+  - name: stg_team_def_ratings
+    description: "Staging model for the raw team_def_ratings table: renames raw uppercase API field names to their friendly lowercase equivalents."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - team_id
+              - season
