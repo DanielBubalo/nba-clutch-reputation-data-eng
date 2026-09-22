@@ -14,7 +14,7 @@ The pipeline follows a strict ELT pattern with three sequential stages:
 
 1. **Extract + Load** (`pipeline/main.py`) — pulls raw data from 8 `nba_api` endpoints across every season from 2004-05 to 2025-26, caches responses as parquet, and loads them into DuckDB as raw tables.
 2. **Transform** (`dbt build`) — builds 7 analysis models and runs 12 data tests on top of the raw tables entirely in SQL.
-3. **Shot extraction** (`pipeline/load_shots.py`) — pulls clutch shot-chart data, scoped to the ~5,086 player-seasons already qualifying in the `player_clutch_performance` dbt model (rather than every player-season in NBA history). Because this step queries a dbt model, it must run *after* stage 2, not alongside stage 1 — this is why it's a separate script rather than folded into `main.py`.
+3. **Shot extraction** (`pipeline/load_shots.py`) — pulls clutch shot-chart data, scoped to the ~5,086 player-seasons already qualifying in the `player_clutch_performance` dbt model (rather than every player-season in NBA history). Because this step queries a dbt model, it must run *after* stage 2, not alongside stage 1 — this is why it's a separate script rather than folded into `main.py`. Raw tables store true, unrenamed API field names; a dedicated dbt staging layer `(models/staging/)` handles all renaming to friendly, analysis-ready column names — this logic previously lived in Python's load step and was moved into dbt so naming conventions are version-controlled, testable, and visible in the lineage graph.
 
 All three stages are orchestrated as a single Airflow DAG (`airflow/dags/nba_pipeline.py`), running in a local Docker Compose environment (CeleryExecutor, Postgres, Redis).
 
@@ -44,7 +44,9 @@ data_eng_project/
         load_shots.py    — separate script for shot extraction (see Architecture)
         checks.py        — data validation helpers
     dbt/
-        models/          — 7 dbt models + sources.yml + schema.yml (tests & descriptions)
+        models/
+            staging/     — 10 staging models, renaming raw columns to friendly names
+            7 analysis models + sources.yml + schema.yml (tests & descriptions)
         dbt_project.yml
     airflow/
         docker-compose.yaml
@@ -78,6 +80,8 @@ Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (defa
 > Note: the Airflow environment installs project dependencies (`nba_api`, `pandas`, `duckdb`, `dbt-core`, `dbt-duckdb`) at container startup via `_PIP_ADDITIONAL_REQUIREMENTS`. This is a quick/dev-only approach — it re-installs on every container restart, which is fine for local development but not intended for production use.
 
 ## dbt Models
+
+A staging layer (10 models, one per raw table) handles all column renaming; the 7 models below build on top of it via `ref()` rather than querying raw sources directly.
 
 | Model | What it answers |
 |---|---|
