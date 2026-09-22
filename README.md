@@ -52,7 +52,8 @@ data_eng_project/
         docker-compose.yaml
         dags/nba_pipeline.py
     scratch/
-        nba_data_load.ipynb — ad-hoc notebook for testing snippets 
+        nba_data_load.ipynb              — ad-hoc notebook for testing snippets
+        findings_ts_delta_by_tier.sql    — query behind the Findings section below
     nba_schema.sql       — full raw table DDL
     nba_clutch.duckdb    — the database itself
     cached_data/         — per-table parquet cache, avoids re-hitting the API on reruns
@@ -94,6 +95,53 @@ A staging layer (10 models, one per raw table) handles all column renaming; the 
 | `shots_with_opponent` | Every clutch shot attempt joined to the shooter's opponent team and that opponent's season defensive rating |
 
 All models are tested for row-level uniqueness (via `dbt_utils.unique_combination_of_columns` or `unique`/`not_null` on a surrogate key) and, where relevant, accepted-value constraints on categorical fields.
+
+## Findings: Does Clutch Reputation Match Clutch Results?
+
+Using `player_clutch_performance` (see `group_tier` and `ts_delta` definitions
+in the dbt Models table above), player-seasons were grouped by tier to compare
+clutch vs. season shooting efficiency. The unit of analysis is the
+player-*season*, not the unique player — a player appearing in 8 seasons
+contributes 8 rows to their tier's numbers. Query: `scratch/findings_ts_delta_by_tier.sql`.
+
+| Tier                   | N (player-seasons) | Mean ts_delta | Median ts_delta | Stddev ts_delta | Mean usg_delta |
+|-------------------------|--------------------:|---------------:|------------------:|------------------:|----------------:|
+| Role                    | 3,534                | -0.0060         | -0.008             | 0.140              | -0.0272          |
+| Star                    | 989                   | -0.0133         | -0.013             | 0.092              | -0.0041          |
+| Olympic Gold Medalist   | 563                   | -0.0112         | -0.014             | 0.083              | +0.0158          |
+
+**All three tiers decline in the clutch** — no group shoots better than its own
+season average on average. There's no evidence here of a "clutch gene" that
+lifts efficiency above baseline.
+
+**Reputation does not predict who declines least.** Role players show the
+smallest drop by both mean and median (-0.006 / -0.008). Star and Olympic Gold
+Medalist are statistically indistinguishable from each other by median
+(-0.013 vs. -0.014), despite Star's larger sample and stronger public
+reputation for "stepping up."
+
+**Mean vs. median matters here.** The mean overstates how well Olympic Gold
+Medalist and Role tiers hold up — both show a meaningfully less-negative mean
+than median, indicating a right-skewed distribution where a subset of standout
+clutch stretches pulls the average above what the typical player-season
+actually looked like. Star's mean and median are nearly identical, so its
+average wasn't similarly flattered.
+
+**Usage tells the "how."** Role players' smaller efficiency drop comes paired
+with a real usage pullback (-0.027) — they take on less of the offensive load
+in the clutch. Stars keep essentially the same shot diet as always
+(usg_delta ≈ 0) and their efficiency still falls the most of any tier. Olympic
+Gold Medalists are the outlier worth noting: usage actually *rises* (+0.016)
+in the clutch, while their efficiency decline lands in the middle of the pack
+— the closest thing in this dataset to "doing more without falling apart."
+
+**Caveat:** clutch-situation samples are smaller than season samples by
+construction (the clutch filter requires 15+ clutch games vs. 100+ season
+field goal attempts), so individual player-season `ts_delta` values carry more
+sampling noise than the season-long numbers they're compared against — part of
+why Role's spread (stddev 0.140) is nearly double Star's (0.092), and worth
+keeping in mind when citing any single player's number rather than a tier
+average.
 
 ## Known Limitations & Deliberate Simplifications
 
