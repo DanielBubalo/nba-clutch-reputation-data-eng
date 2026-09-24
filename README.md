@@ -96,6 +96,23 @@ A staging layer (10 models, one per raw table) handles all column renaming; the 
 
 All models are tested for row-level uniqueness (via `dbt_utils.unique_combination_of_columns` or `unique`/`not_null` on a surrogate key) and, where relevant, accepted-value constraints on categorical fields.
 
+### Materialization Strategy
+
+All models build as views by default (set in `dbt_project.yml`). The one
+exception is `player_clutch_performance`, materialized as a table via a
+per-model `{{ config(materialized='table') }}` override, because it's
+referenced by `ref()` in five other models — `home_vs_road`,
+`matchup_analysis`, `player_clutch_playmaking`, `shots_with_opponent`, and
+`star_player_performance` — each of which would otherwise re-run its full
+join (season stats + clutch stats + `player_tier` + player names)
+independently on every build. Materializing it once means that join runs a
+single time and gets read, not recomputed, by each downstream model.
+
+No other model currently has more than one downstream consumer in the dbt
+DAG, so the rest stay views until there's an actual case for change —
+likely once the planned dashboard starts querying them directly and
+repeatedly.
+
 ## Findings: Does Clutch Reputation Match Clutch Results?
 
 Using `player_clutch_performance` (see `group_tier` and `ts_delta` definitions
