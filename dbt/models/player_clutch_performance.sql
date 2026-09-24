@@ -1,3 +1,4 @@
+{{config (materialized = 'table')}}
 WITH
     season_stats AS (
         SELECT
