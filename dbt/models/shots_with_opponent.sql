@@ -5,7 +5,7 @@ WITH
             t.team_id AS home_team_id
         FROM
             {{ref ('stg_clutch_shots')}} cs
-            JOIN {{ref ('stg_teams')}} t ON cs.home_team_abv = t.team_abv
+            JOIN {{ref ('team_abv_lookup')}} t ON cs.home_team_abv = t.team_abv
     ),
     visitor_lookup AS (
         SELECT
@@ -13,7 +13,7 @@ WITH
             t.team_id AS visitor_team_id
         FROM
             {{ref ('stg_clutch_shots')}} cs
-            JOIN {{ref ('stg_teams')}} t ON cs.visitor_team_abv = t.team_abv
+            JOIN {{ref ('team_abv_lookup')}} t ON cs.visitor_team_abv = t.team_abv
     ),
     with_opponent AS (
         SELECT

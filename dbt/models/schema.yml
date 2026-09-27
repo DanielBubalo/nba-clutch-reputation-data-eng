@@ -61,8 +61,18 @@ models:
               - season
   - name: shots_with_opponent
     description: "Clutch shots joined to the shooter's opponent team and that opponent's season defensive rating."
+    data_tests:
+      - dbt_utils.equal_rowcount:
+          compare_model: ref('set_clutch_shots')
     columns:
       - name: shot_id
+        data_tests:
+          - unique
+          - not_null
+  - name: team_abv_lookup
+    description: "Maps every team abbreviation used in any season (including historical ones) to its franchise team_id."
+    columns:
+      - name: team_abv
         data_tests:
           - unique
           - not_null
