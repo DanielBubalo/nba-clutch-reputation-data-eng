@@ -15,14 +15,15 @@ def save_table(df: pd.DataFrame, table_name: str) -> Path:
 
 
 # Loads the extracted data into staging table (nba_schema)
-def load_table(table_name: str, file_path: str, columns: dict) -> None:
+def load_table(
+    table_name: str, file_path: str, columns: list, ignore_duplicates: bool = False
+) -> None:
     column_list = ", ".join(f'"{col}"' for col in columns)
+    insert_mode = "INSERT OR IGNORE" if ignore_duplicates else "INSERT OR REPLACE"
 
     with duckdb.connect(db_path) as con:
-        con.sql(
-            f"""INSERT OR REPLACE INTO {table_name} ({column_list}) SELECT {column_list}
-                FROM read_parquet("{file_path}")"""
-        )
+        con.sql(f"""{insert_mode} INTO {table_name} ({column_list}) SELECT {column_list}
+                FROM read_parquet("{file_path}")""")
 
 
 # Adds backfill of data that is missing between dimension and fact tables

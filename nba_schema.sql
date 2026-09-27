@@ -110,6 +110,7 @@ CREATE SEQUENCE clutch_shots_id_seq START 1;
 CREATE TABLE clutch_shots (
     shot_id INT PRIMARY KEY DEFAULT nextval('clutch_shots_id_seq'),
     GAME_ID VARCHAR(20),
+    GAME_EVENT_ID INT,
     PLAYER_ID INT,
     PLAYER_NAME VARCHAR(50),
     SEASON VARCHAR(7),
@@ -121,6 +122,7 @@ CREATE TABLE clutch_shots (
     TEAM_ID INT,
     HTM VARCHAR,
     VTM VARCHAR,
+    UNIQUE (GAME_ID, GAME_EVENT_ID),
     FOREIGN KEY (PLAYER_ID) REFERENCES players (id)
 );
 

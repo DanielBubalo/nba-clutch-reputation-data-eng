@@ -1,6 +1,7 @@
 SELECT
     shot_id,
     GAME_ID AS game_id,
+    GAME_EVENT_ID AS game_event_id,
     PLAYER_ID AS player_id,
     PLAYER_NAME AS player_name,
     SEASON AS season,

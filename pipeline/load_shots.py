@@ -26,6 +26,7 @@ def main() -> None:
         "PLAYER_ID",
         "SEASON",
         "GAME_ID",
+        "GAME_EVENT_ID",
         "PLAYER_NAME",
         "PERIOD",
         "MINUTES_REMAINING",
@@ -36,7 +37,12 @@ def main() -> None:
         "HTM",
         "VTM",
     ]
-    load_table("clutch_shots", file_path_clutch_shots, clutch_shots_columns)
+    load_table(
+        "clutch_shots",
+        file_path_clutch_shots,
+        clutch_shots_columns,
+        ignore_duplicates=True,
+    )
 
 
 if __name__ == "__main__":

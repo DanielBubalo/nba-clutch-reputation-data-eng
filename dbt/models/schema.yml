@@ -140,6 +140,11 @@ models:
               - award
   - name: stg_clutch_shots
     description: "Staging model for the raw clutch_shots table: renames raw uppercase API field names to their friendly lowercase equivalents; shot_id passes through unchanged."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - game_id
+            - game_event_id
     columns:
       - name: shot_id
         data_tests:
