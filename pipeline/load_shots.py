@@ -51,5 +51,5 @@ if __name__ == "__main__":
     end = time.time()
     print(f"Total runtime: {end - start:.2f} seconds")
 
-# Runtime: 6541.67 seconds
-# 1 hour, 49 minutes, 1.67 seconds
+# Runtime: 9532.38 seconds
+# 2 hours, 38 minutes, and 52.38 seconds

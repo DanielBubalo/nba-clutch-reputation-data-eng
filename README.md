@@ -74,13 +74,14 @@ source .venv/bin/activate    # skip if you're using your own conda/venv
 
 > **macOS + python.org Python:** if setup fails with `CERTIFICATE_VERIFY_FAILED`, run `"/Applications/Python 3.13/Install Certificates.command"` once, then rerun `./setup.sh`.
 
-> The database and parquet cache aren't in the repo, so a fresh clone must run the full pipeline once (~1h49m for `main.py`, since every season is pulled from the API). Later runs read from the local cache and are much faster.
+> The database and parquet cache aren't in the repo, so a fresh clone must run the full pipeline once: about 51 minutes for `main.py` and 2h39m for `load_shots.py` (roughly 3.5 hours total), since every season is pulled from the API. Runtimes vary with NBA API responsiveness. Later runs read from the local cache and are much faster.
 
 **Run manually**, in this exact order (each stage depends on the previous one completing):
 ```bash
-python3 pipeline/main.py       # raw extract + load — ~1h49m on a full run, all seasons
-cd dbt && dbt build --profiles-dir .   # builds all models and runs all data + unit tests
-cd .. && python3 pipeline/load_shots.py   # shot extraction — requires dbt build to have completed at least once
+python3 pipeline/main.py                  # raw extract + load — ~51 min on a fresh run (empty cache)
+cd dbt && dbt build --profiles-dir .      # builds all models and runs all data + unit tests
+cd .. && python3 pipeline/load_shots.py   # shot extraction — ~2h39m on a fresh run; requires dbt build first
+cd dbt && dbt build --profiles-dir .      # rebuild so shot models and their tests run on the loaded shots
 ```
 
 **Run via Airflow** (recommended — handles the sequencing automatically):
@@ -89,7 +90,7 @@ cd airflow
 docker compose up airflow-init    # one-time setup
 docker compose up -d              # starts the full stack
 ```
-Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (default login: `airflow` / `airflow`). The DAG runs `main.py → dbt deps → dbt build → load_shots.py` in sequence, matching the dependency order above.
+Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (default login: `airflow` / `airflow`). The DAG runs `main.py → dbt deps → dbt build → load_shots.py` in sequence. It doesn't yet include the final rebuild, so shot-level tests run on the next DAG run rather than the current one.
 
 > Note: the Airflow environment installs project dependencies (`nba_api`, `pandas`, `duckdb`, `dbt-core`, `dbt-duckdb`) at container startup via `_PIP_ADDITIONAL_REQUIREMENTS`. This is a quick/dev-only approach — it re-installs on every container restart, which is fine for local development but not intended for production use.
 
