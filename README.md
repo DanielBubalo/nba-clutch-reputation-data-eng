@@ -16,7 +16,7 @@ The pipeline follows a strict ELT pattern with three sequential stages:
 2. **Transform** (`dbt build`) — builds the staging layer and analysis models, and runs all data and unit tests, entirely in SQL.
 3. **Shot extraction** (`pipeline/load_shots.py`) — pulls clutch shot-chart data, scoped to the ~5,086 player-seasons already qualifying in the `player_clutch_performance` dbt model (rather than every player-season in NBA history). Because this step queries a dbt model, it must run *after* stage 2, not alongside stage 1 — this is why it's a separate script rather than folded into `main.py`. Raw tables store true, unrenamed API field names; a dedicated dbt staging layer `(models/staging/)` handles all renaming to friendly, analysis-ready column names — this logic previously lived in Python's load step and was moved into dbt so naming conventions are version-controlled, testable, and visible in the lineage graph.
 
-All three stages are orchestrated as a single Airflow DAG (`airflow/dags/nba_pipeline.py`), running in a local Docker Compose environment (CeleryExecutor, Postgres, Redis).
+All three stages are orchestrated by two Airflow DAGs, running in a local Docker Compose environment (CeleryExecutor, Postgres, Redis): `nba_clutch_pipeline` handles stages 1–2, then triggers `nba_clutch_shots` for stage 3 and a final dbt rebuild.
 
 ## Data Sources
 
@@ -51,7 +51,8 @@ data_eng_project/
         dbt_project.yml
     airflow/
         docker-compose.yaml
-        dags/nba_pipeline.py
+        dags/nba_pipeline.py          — main DAG: extract, dbt deps, dbt build, triggers shots DAG
+        dags/nba_shots_pipeline.py    — shots DAG: load_shots.py, dbt build
     scratch/
         nba_data_load.ipynb              — ad-hoc notebook for testing snippets
         findings_ts_delta_by_tier.sql    — query behind the Findings section below
@@ -90,7 +91,7 @@ cd airflow
 docker compose up airflow-init    # one-time setup
 docker compose up -d              # starts the full stack
 ```
-Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (default login: `airflow` / `airflow`). The DAG runs `main.py → dbt deps → dbt build → load_shots.py` in sequence. It doesn't yet include the final rebuild, so shot-level tests run on the next DAG run rather than the current one.
+Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (default login: `airflow` / `airflow`). The pipeline is split into two DAGs. `nba_clutch_pipeline` runs `main.py → dbt deps → dbt build`, then triggers `nba_clutch_shots`, which runs `load_shots.py → dbt build` so shot models are rebuilt and tested on the freshly loaded shots.
 
 > Note: the Airflow environment installs project dependencies (`nba_api`, `pandas`, `duckdb`, `dbt-core`, `dbt-duckdb`) at container startup via `_PIP_ADDITIONAL_REQUIREMENTS`. This is a quick/dev-only approach — it re-installs on every container restart, which is fine for local development but not intended for production use.
 
