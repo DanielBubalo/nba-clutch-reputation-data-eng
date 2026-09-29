@@ -6,3 +6,4 @@ airflow/logs/
 .DS_Store
 dbt/logs/
 logs/
+.venv/

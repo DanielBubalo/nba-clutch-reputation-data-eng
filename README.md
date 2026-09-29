@@ -55,6 +55,8 @@ data_eng_project/
     scratch/
         nba_data_load.ipynb              — ad-hoc notebook for testing snippets
         findings_ts_delta_by_tier.sql    — query behind the Findings section below
+    setup.sh             — one-command dependency install (Python + dbt packages)
+    requirements.txt     — pinned Python dependencies
     nba_schema.sql       — full raw table DDL
     nba_clutch.duckdb    — the database itself
     cached_data/         — per-table parquet cache, avoids re-hitting the API on reruns
@@ -62,12 +64,22 @@ data_eng_project/
 
 ## Setup & Running
 
-**Requirements:** Python 3, DuckDB, dbt-core + dbt-duckdb, Docker Desktop.
+**Requirements:** Python 3.13, Docker Desktop (for Airflow). Python dependencies are pinned in `requirements.txt`.
+
+**Install dependencies:**
+```bash
+./setup.sh                   # creates .venv if no environment is active, installs Python + dbt packages
+source .venv/bin/activate    # skip if you're using your own conda/venv
+```
+
+> **macOS + python.org Python:** if setup fails with `CERTIFICATE_VERIFY_FAILED`, run `"/Applications/Python 3.13/Install Certificates.command"` once, then rerun `./setup.sh`.
+
+> The database and parquet cache aren't in the repo, so a fresh clone must run the full pipeline once (~1h49m for `main.py`, since every season is pulled from the API). Later runs read from the local cache and are much faster.
 
 **Run manually**, in this exact order (each stage depends on the previous one completing):
 ```bash
 python3 pipeline/main.py       # raw extract + load — ~1h49m on a full run, all seasons
-cd dbt && dbt deps --profiles-dir . && dbt build --profiles-dir .   # installs dbt_utils, then builds all models and runs all data + unit tests
+cd dbt && dbt build --profiles-dir .   # builds all models and runs all data + unit tests
 cd .. && python3 pipeline/load_shots.py   # shot extraction — requires dbt build to have completed at least once
 ```
 
@@ -113,9 +125,7 @@ independently on every build. Materializing it once means that join runs a
 single time and gets read, not recomputed, by each downstream model.
 
 Staging models also have multiple consumers, but they're simple
-column-renaming selects, cheap enough to stay views. No other model combines
-an expensive join with multiple downstream consumers, so the rest stay views
-until there's an actual case for change —
+column-renaming selects, cheap enough to stay views. No other model combines an expensive join with multiple downstream consumers, so the rest stay views until there's an actual case for change — likely once the planned dashboard starts querying them directly and repeatedly.
 
 ## Findings: Does Clutch Reputation Match Clutch Results?
 
