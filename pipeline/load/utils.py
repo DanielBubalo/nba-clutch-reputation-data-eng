@@ -66,3 +66,10 @@ def fill_missing_players(
     df = pd.concat([dimension_df, missing_players_renamed])
     load_table("players", file_path, [dimension_column_id, dimension_column_name])
     return df
+
+
+# Creates all raw tables and the shot ID sequence if they don't exit yet
+def init_db() -> None:
+    schema_path = Path(__file__).resolve().parents[2] / "nba_schema.sql"
+    with duckdb.connect(str(db_path)) as con:
+        con.execute(schema_path.read_text())

@@ -12,10 +12,13 @@ from extract.stats import (
 from extract.matchups import primary_defenders_table
 from extract.awards import extract_all_player_awards
 from checks import validation, check_mismatch
-from load.utils import save_table, load_table, fill_missing_players
+from load.utils import save_table, load_table, fill_missing_players, init_db
 
 
 def main() -> None:
+    # Creates the database if it's not already there
+    init_db()
+
     # Variables to hold dimension tables
     players_df = players_table()
     teams_df = teams_table()

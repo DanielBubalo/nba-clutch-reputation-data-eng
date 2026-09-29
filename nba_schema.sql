@@ -1,15 +1,15 @@
-CREATE TABLE players (
+CREATE TABLE IF NOT EXISTS players (
     id INT PRIMARY KEY,
     full_name VARCHAR(50) NOT NULL
 );
 
-CREATE TABLE teams (
+CREATE TABLE IF NOT EXISTS teams (
     id INT PRIMARY KEY,
     abbreviation CHAR(3),
     full_name VARCHAR(50) NOT NULL
 );
 
-CREATE TABLE player_advanced_stats (
+CREATE TABLE IF NOT EXISTS player_advanced_stats (
     PLAYER_ID INT,
     SEASON VARCHAR(7),
     TEAM_ID INT,
@@ -32,7 +32,7 @@ CREATE TABLE player_advanced_stats (
     FOREIGN KEY (TEAM_ID) REFERENCES teams (id)
 );
 
-CREATE TABLE player_basic_stats (
+CREATE TABLE IF NOT EXISTS player_basic_stats (
     PLAYER_ID INT,
     SEASON VARCHAR(7),
     FGA INT,
@@ -46,7 +46,7 @@ CREATE TABLE player_basic_stats (
     FOREIGN KEY (PLAYER_ID) REFERENCES players (id)
 );
 
-CREATE TABLE clutch_advanced_stats (
+CREATE TABLE IF NOT EXISTS clutch_advanced_stats (
     PLAYER_ID INT,
     SEASON VARCHAR(7),
     GP INT,
@@ -63,7 +63,7 @@ CREATE TABLE clutch_advanced_stats (
     FOREIGN KEY (PLAYER_ID) REFERENCES players (id)
 );
 
-CREATE TABLE home_clutch_stats (
+CREATE TABLE IF NOT EXISTS home_clutch_stats (
     PLAYER_ID INT,
     SEASON VARCHAR(7),
     GP INT,
@@ -74,7 +74,7 @@ CREATE TABLE home_clutch_stats (
     FOREIGN KEY (PLAYER_ID) REFERENCES players (id)
 );
 
-CREATE TABLE road_clutch_stats (
+CREATE TABLE IF NOT EXISTS road_clutch_stats (
     PLAYER_ID INT,
     SEASON VARCHAR(7),
     GP INT,
@@ -85,7 +85,7 @@ CREATE TABLE road_clutch_stats (
     FOREIGN KEY (PLAYER_ID) REFERENCES players (id)
 );
 
-CREATE TABLE primary_defenders_stats (
+CREATE TABLE IF NOT EXISTS primary_defenders_stats (
     OFF_PLAYER_ID INT,
     OFF_PLAYER_NAME VARCHAR(50),
     SEASON VARCHAR(7),
@@ -97,7 +97,7 @@ CREATE TABLE primary_defenders_stats (
     FOREIGN KEY (DEF_PLAYER_ID) REFERENCES players (id)
 );
 
-CREATE TABLE player_awards (
+CREATE TABLE IF NOT EXISTS player_awards (
     PERSON_ID INT,
     SEASON VARCHAR(7),
     DESCRIPTION VARCHAR(50),
@@ -105,9 +105,9 @@ CREATE TABLE player_awards (
     FOREIGN KEY (PERSON_ID) REFERENCES players (id)
 );
 
-CREATE SEQUENCE clutch_shots_id_seq START 1;
+CREATE SEQUENCE IF NOT EXISTS clutch_shots_id_seq START 1;
 
-CREATE TABLE clutch_shots (
+CREATE TABLE IF NOT EXISTS clutch_shots (
     shot_id INT PRIMARY KEY DEFAULT nextval('clutch_shots_id_seq'),
     GAME_ID VARCHAR(20),
     GAME_EVENT_ID INT,
@@ -126,7 +126,7 @@ CREATE TABLE clutch_shots (
     FOREIGN KEY (PLAYER_ID) REFERENCES players (id)
 );
 
-CREATE TABLE team_def_ratings (
+CREATE TABLE IF NOT EXISTS team_def_ratings (
     TEAM_ID INT,
     SEASON VARCHAR(7),
     TEAM_NAME VARCHAR(50),
