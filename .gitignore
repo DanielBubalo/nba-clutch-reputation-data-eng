@@ -7,3 +7,6 @@ airflow/logs/
 dbt/logs/
 logs/
 .venv/
+airflow/config/
+.env
+**/.env
