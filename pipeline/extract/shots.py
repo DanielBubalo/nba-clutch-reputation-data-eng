@@ -4,6 +4,7 @@ import time
 import requests
 import json
 from paths import cached_data_dir, db_path
+from extract.api import RETRYABLE_ERRORS, fetch_with_retry, raise_if_failures
 from nba_api.stats.endpoints import ShotChartDetail
 
 
@@ -37,6 +38,7 @@ def extract_all_shots(file_name: str) -> pd.DataFrame:
     all_shot_data = []
     path_dir = cached_data_dir / "shots"
     path_dir.mkdir(parents=True, exist_ok=True)
+    failures = []
     for index, row in pairs_df.iterrows():
         player_id = row["player_id"]
         season = row["season"]
@@ -47,12 +49,20 @@ def extract_all_shots(file_name: str) -> pd.DataFrame:
         else:
             try:
                 print(f"Pulling {player_id} {season} now")
-                df = clutch_shots_table(player_id, season)
+                df = fetch_with_retry(clutch_shots_table, player_id, season)
                 df.to_parquet(file_path, index=False)
                 time.sleep(0.5)
-            except (requests.exceptions.ReadTimeout, json.decoder.JSONDecodeError):
-                print(f"Error pulling {player_id} {season}")
+            except RETRYABLE_ERRORS as error:
+                print(f"Error pulling {player_id} {season}: {type(error).__name__}")
+                failures.append(
+                    {
+                        "player_id": int(player_id),
+                        "season": season,
+                        "error": type(error).__name__,
+                    }
+                )
                 continue
         all_shot_data.append(df)
+    raise_if_failures(failures, file_name)
     result = pd.concat(all_shot_data)
     return result

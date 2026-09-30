@@ -12,7 +12,7 @@ nba_api  →  Python (Extract + Load)  →  DuckDB  →  dbt (Transform)  →  7
 
 The pipeline follows a strict ELT pattern with three sequential stages:
 
-1. **Extract + Load** (`pipeline/main.py`) — pulls raw data from 8 `nba_api` endpoints across every season from 2004-05 to 2025-26, caches responses as parquet, and loads them into DuckDB as raw tables.
+1. **Extract + Load** (`pipeline/main.py`) — pulls raw data from 8 `nba_api` endpoints across every season from 2004-05 to 2025-26, caches responses as parquet, and loads them into DuckDB as raw tables. Failed API calls are retried with exponential backoff; anything still failing is written to a manifest in `pipeline/cached_data/failures/` and the run exits with an error, so incomplete data (like a player missing their awards, which would wrongly classify them as Role) never reaches dbt. Successful calls stay cached, so a rerun only re-fetches what failed.
 2. **Transform** (`dbt build`) — builds the staging layer and analysis models, and runs all data and unit tests, entirely in SQL.
 3. **Shot extraction** (`pipeline/load_shots.py`) — pulls clutch shot-chart data, scoped to the ~5,086 player-seasons already qualifying in the `player_clutch_performance` dbt model (rather than every player-season in NBA history). Because this step queries a dbt model, it must run *after* stage 2, not alongside stage 1 — this is why it's a separate script rather than folded into `main.py`. Raw tables store true, unrenamed API field names; a dedicated dbt staging layer `(models/staging/)` handles all renaming to friendly, analysis-ready column names — this logic previously lived in Python's load step and was moved into dbt so naming conventions are version-controlled, testable, and visible in the lineage graph.
 
@@ -39,6 +39,7 @@ All data comes from the unofficial `nba_api` Python package, covering Regular Se
 data_eng_project/
     pipeline/
         extract/        — one module per data domain (stats, matchups, awards, shots, static)
+            api.py       — shared retry-with-backoff and failure-manifest helpers
         load/            — save/load utilities, missing-player backfill logic
         main.py          — orchestrates the full raw EL run
         load_shots.py    — separate script for shot extraction (see Architecture)

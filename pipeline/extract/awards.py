@@ -1,8 +1,8 @@
 import pandas as pd
 import time
-import requests
 from pathlib import Path
 from paths import cached_data_dir
+from extract.api import RETRYABLE_ERRORS, fetch_with_retry, raise_if_failures
 from nba_api.stats.endpoints import PlayerAwards
 
 
@@ -20,6 +20,7 @@ def extract_all_player_awards(
     all_player_data = []
     path_dir = cached_data_dir / "awards"
     path_dir.mkdir(parents=True, exist_ok=True)
+    failures = []
     for player_id in player_ids:
         file_path = path_dir / f"{file_name}_{player_id}.parquet"
         if (file_path).exists():
@@ -28,13 +29,17 @@ def extract_all_player_awards(
         else:
             try:
                 print(f"Pulling {player_id} now")
-                df = player_awards_table(player_id)
+                df = fetch_with_retry(player_awards_table, player_id)
                 df.to_parquet(file_path, index=False)
                 time.sleep(0.5)
-            except requests.exceptions.ReadTimeout:
-                print(f"Error pulling {player_id}")
+            except RETRYABLE_ERRORS as error:
+                print(f"Error pulling {player_id}: {type(error).__name__}")
+                failures.append(
+                    {"player_id": int(player_id), "error": type(error).__name__}
+                )
                 continue
         all_player_data.append(df)
+    raise_if_failures(failures, file_name)
     result = pd.concat(all_player_data)
     return result
 
@@ -46,5 +51,7 @@ def player_awards_table(player_id: int) -> pd.DataFrame:
     player_awards_df = player_awards_df[
         player_awards_df["WEEK"].isna() & player_awards_df["MONTH"].isna()
     ]
-    player_awards_df["FULL_NAME"] = player_awards_df["FIRST_NAME"] + " " + player_awards_df["LAST_NAME"]
+    player_awards_df["FULL_NAME"] = (
+        player_awards_df["FIRST_NAME"] + " " + player_awards_df["LAST_NAME"]
+    )
     return player_awards_df
