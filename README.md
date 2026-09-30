@@ -31,7 +31,7 @@ All data comes from the unofficial `nba_api` Python package, covering Regular Se
 | `LeagueDashTeamStats` (Advanced) | Team defensive ratings, by season |
 | Matchup/primary defender endpoints | Player-vs-player defensive matchup minutes |
 | Awards endpoint | Career awards (used to classify reputation tier) |
-| `ShotChartDetail` | Individual clutch shot attempts, with location and opponent context |
+| `ShotChartDetail` | Individual clutch shot attempts (official clutch definition), with location and opponent context |
 
 ## Repository Structure
 
@@ -50,6 +50,7 @@ data_eng_project/
             7 analysis models + team_abv_lookup
             sources.yml, schema.yml (data tests & descriptions), unit_tests.yml
         dbt_project.yml
+        tests/           — singular data tests (e.g. shot counts vs. official clutch FGA)
     airflow/
         Dockerfile                    — custom Airflow image with project dependencies
         requirements.txt              — pinned packages installed into the image
@@ -114,7 +115,7 @@ A staging layer (11 models, one per raw table) handles all column renaming; the 
 | `shots_with_opponent` | Every clutch shot attempt joined to the shooter's opponent team and that opponent's season defensive rating |
 | `team_abv_lookup` | Maps every team abbreviation used in any season, including historical ones (SEA, NJN, NOH, NOK), to its franchise `team_id` |
 
-All models are tested for row-level uniqueness (via `dbt_utils.unique_combination_of_columns` or `unique`/`not_null` on a surrogate key) and, where relevant, accepted-value constraints on categorical fields. `stg_clutch_shots` is tested on its natural key (`game_id` + `game_event_id`) rather than only its sequence-generated `shot_id`, and `shots_with_opponent` is tested with `dbt_utils.equal_rowcount` against `stg_clutch_shots` to catch shots silently dropped by joins.
+All models are tested for row-level uniqueness (via `dbt_utils.unique_combination_of_columns` or `unique`/`not_null` on a surrogate key) and, where relevant, accepted-value constraints on categorical fields. `stg_clutch_shots` is tested on its natural key (`game_id` + `game_event_id`) rather than only its sequence-generated `shot_id`, and `shots_with_opponent` is tested with `dbt_utils.equal_rowcount` against `stg_clutch_shots` to catch shots silently dropped by joins. A singular test (`tests/assert_shot_counts_match_clutch_fga.sql`) checks that each player-season's clutch shot count matches its official clutch field-goal attempts, so the shot and stats datasets can't drift onto different clutch definitions.
 
 `player_tier`'s classification logic is covered by dbt unit tests (`unit_tests.yml`) using mocked award data. They check that an award only counts from the following season (no look-ahead), that a gold medal without a star-level NBA award stays Role since the tier reflects NBA recognition specifically, and that players with no awards are kept rather than dropped by the joins.
 
@@ -180,8 +181,8 @@ optimistic.
 
 ## Known Limitations & Deliberate Simplifications
 
-- **Clutch definition is time-based, not score-based.** "Clutch" is approximated as Period ≥ 4 and ≤5 minutes remaining, without factoring in score differential — full play-by-play data would be required for a true clutch definition (last 5 minutes, game within 5 points), and wasn't pulled for this project.
+- **Clutch uses the NBA's official definition everywhere:** the last 5 minutes of the 4th quarter or overtime, with the score within 5 points. Both the clutch stats (`LeagueDashPlayerClutch`) and the clutch shots (`ShotChartDetail`) request this definition from the API, and a dbt test checks that every player-season's shot count equals its official clutch field-goal attempts. An earlier version filtered shots by time only, which ignored the score and captured about six minutes instead of five; for LeBron James in 2015-16, that produced 205 "clutch" shots where the official count was 92.
 - **Season range is hardcoded** to 2004-05 through 2025-26.
 - **Load strategy is full-reprocess**, not incrementally extracted — every run re-checks all cached data (`INSERT OR REPLACE` for stats tables, `INSERT OR IGNORE` for shots) rather than only pulling genuinely new records.
-- **71 of 435,943 clutch shots (0.02%)** have no recorded shot location (`loc_x`/`loc_y` are null in the source data). They're retained in `shots_with_opponent` with full team/opponent context, but should be filtered out of any location-based (shot chart) analysis.
+- **<NULL> of <TOTAL> clutch shots** have no recorded shot location
 - **Current-season handling isn't implemented** — there's no logic to distinguish an in-progress season from a completed one, so a season fetched mid-year would be cached as if final.

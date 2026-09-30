@@ -24,11 +24,11 @@ def clutch_shots_table(player_id: int, season: str) -> pd.DataFrame:
         season_nullable=season,
         context_measure_simple="FGA",
         season_type_all_star="Regular Season",
+        clutch_time_nullable="Last 5 Minutes",
+        ahead_behind_nullable="Ahead or Behind",
+        point_diff_nullable=5,
     )
     shot_chart_df = shot_chart.get_data_frames()[0]
-    shot_chart_df = shot_chart_df[
-        (shot_chart_df["PERIOD"] >= 4) & (shot_chart_df["MINUTES_REMAINING"] <= 5)
-    ]
     shot_chart_df["SEASON"] = season
     return shot_chart_df
 
