@@ -63,7 +63,8 @@ models:
     description: "Clutch shots joined to the shooter's opponent team and that opponent's season defensive rating."
     data_tests:
       - dbt_utils.equal_rowcount:
-          compare_model: ref('set_clutch_shots')
+          arguments:
+            compare_model: ref('stg_clutch_shots')
     columns:
       - name: shot_id
         data_tests:
