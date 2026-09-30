@@ -50,9 +50,10 @@ data_eng_project/
             sources.yml, schema.yml (data tests & descriptions), unit_tests.yml
         dbt_project.yml
     airflow/
+        Dockerfile                    — custom Airflow image with project dependencies
+        requirements.txt              — pinned packages installed into the image
+        .env.example                  — template for required secrets (copy to .env)
         docker-compose.yaml
-        dags/nba_pipeline.py          — main DAG: extract, dbt deps, dbt build, triggers shots DAG
-        dags/nba_shots_pipeline.py    — shots DAG: load_shots.py, dbt build
     scratch/
         nba_data_load.ipynb              — ad-hoc notebook for testing snippets
         findings_ts_delta_by_tier.sql    — query behind the Findings section below
@@ -88,12 +89,14 @@ cd dbt && dbt build --profiles-dir .      # rebuild so shot models and their tes
 **Run via Airflow** (recommended — handles the sequencing automatically):
 ```bash
 cd airflow
+cp .env.example .env              # then fill in AIRFLOW_UID and generate the three keys (commands are in the file)
+docker compose build              # builds the custom image with project dependencies
 docker compose up airflow-init    # one-time setup
 docker compose up -d              # starts the full stack
 ```
 Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (default login: `airflow` / `airflow`). The pipeline is split into two DAGs. `nba_clutch_pipeline` runs `main.py → dbt deps → dbt build`, then triggers `nba_clutch_shots`, which runs `load_shots.py → dbt build` so shot models are rebuilt and tested on the freshly loaded shots.
 
-> Note: the Airflow environment installs project dependencies (`nba_api`, `pandas`, `duckdb`, `dbt-core`, `dbt-duckdb`) at container startup via `_PIP_ADDITIONAL_REQUIREMENTS`. This is a quick/dev-only approach — it re-installs on every container restart, which is fine for local development but not intended for production use.
+> Note: Airflow runs on a custom image (`airflow/Dockerfile`) that installs the project's pinned dependencies from `airflow/requirements.txt` once, at build time, so containers start without reinstalling packages. Rebuild with `docker compose build` after changing those requirements. Secrets (fernet key, API secret key, JWT secret) are loaded from `airflow/.env`, which is gitignored; `airflow/.env.example` lists the required variables.
 
 ## dbt Models
 
