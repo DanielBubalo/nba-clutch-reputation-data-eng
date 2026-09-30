@@ -1,46 +1,68 @@
 unit_tests:
-  - name: test_player_tier_star
+  - name: test_player_tier_star_counts_from_next_season
     description: >
-      A player with a star level award but no Olympic gold medal 
-      should be classified as Star, not Olympic Gold Medalist.
-    model: player_tier
-    given: 
-      - input: ref('stg_player_awards')
-        rows:
-          - {player_id: 101, season: '2018-19', award: 'NBA All-Star'}
-      - input: ref('stg_player_advanced_stats')
-        rows: []
-    expect:
-      rows:
-        - {player_id: 101, group_tier: 'Star'}
-
-  - name: test_player_tier_olympic_gold_medalist_and_star
-    description: >
-        A player with both a star-level award and an Olympic gold medal
-        should be classified as Olympic Gold Medalist.
+      An All-Star selection in 2015-16 should not label 2015-16 itself (no
+      look-ahead); the player becomes Star starting in 2016-17.
     model: player_tier
     given:
       - input: ref('stg_player_awards')
         rows:
-          - {player_id: 202,  season: '2025-26', award: 'Olympic Gold Medal'}
-          - {player_id: 202, season: '2023-24', award: 'NBA All-Star'}
+          - {player_id: 101, season: '2015-16', award: 'NBA All-Star'}
       - input: ref('stg_player_advanced_stats')
-        rows: []
+        rows:
+          - {player_id: 101, season: '2015-16'}
+          - {player_id: 101, season: '2016-17'}
     expect:
       rows:
-        - {player_id: 202, group_tier: 'Olympic Gold Medalist'}
+        - {player_id: 101, season: '2015-16', group_tier: 'Role'}
+        - {player_id: 101, season: '2016-17', group_tier: 'Star'}
 
-  - name: test_player_tier_olympic_gold_medalist
+  - name: test_player_tier_star_then_gold
     description: >
-      A player with only a Olympic gold medal should be classified as a
-      Role player.
+      A player who is already a Star becomes Olympic Gold Medalist starting
+      in the season that begins right after the Olympics.
     model: player_tier
     given:
       - input: ref('stg_player_awards')
         rows:
-          - {player_id: 303, season: '2014-15', award: 'Olympic Gold Medal'}
+          - {player_id: 202, season: '2013-14', award: 'NBA All-Star'}
+          - {player_id: 202, season: '2016', award: 'Olympic Gold Medal'}
       - input: ref('stg_player_advanced_stats')
-        rows: []
+        rows:
+          - {player_id: 202, season: '2015-16'}
+          - {player_id: 202, season: '2016-17'}
     expect:
       rows:
-        - {player_id: 303, group_tier: 'Role'}
+        - {player_id: 202, season: '2015-16', group_tier: 'Star'}
+        - {player_id: 202, season: '2016-17', group_tier: 'Olympic Gold Medalist'}
+
+  - name: test_player_tier_gold_without_star_is_role
+    description: >
+      An Olympic gold medal without any star-level NBA award is classified as
+      Role, since the tier reflects NBA recognition specifically.
+    model: player_tier
+    given:
+      - input: ref('stg_player_awards')
+        rows:
+          - {player_id: 303, season: '2012', award: 'Olympic Gold Medal'}
+      - input: ref('stg_player_advanced_stats')
+        rows:
+          - {player_id: 303, season: '2012-13'}
+    expect:
+      rows:
+        - {player_id: 303, season: '2012-13', group_tier: 'Role'}
+
+  - name: test_player_tier_no_awards_is_kept_as_role
+    description: >
+      A player with no awards at all must still appear, as Role. Guards the
+      LEFT JOINs against silently dropping players without awards.
+    model: player_tier
+    given:
+      - input: ref('stg_player_awards')
+        rows: []
+      - input: ref('stg_player_advanced_stats')
+        rows:
+          - {player_id: 404, season: '2015-16'}
+    expect:
+      rows:
+        - {player_id: 404, season: '2015-16', group_tier: 'Role'}

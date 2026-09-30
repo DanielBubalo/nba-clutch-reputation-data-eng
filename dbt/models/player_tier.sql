@@ -1,7 +1,8 @@
 WITH
-    star_players AS (
-        SELECT DISTINCT
-            player_id
+    star_from AS (
+        SELECT
+            player_id,
+            MIN(CAST(LEFT(season, 4) AS INT)) + 1 AS star_from_year
         FROM
             {{ref ('stg_player_awards')}}
         WHERE
@@ -12,55 +13,38 @@ WITH
                 'NBA All-Star Most Valuable Player',
                 'NBA All-Star'
             )
-    ),
-    gold_medalists AS (
-        SELECT DISTINCT
+        GROUP BY
             player_id
+    ),
+    gold_from AS (
+        SELECT
+            player_id,
+            MIN(CAST(season AS INT)) AS gold_from_year
         FROM
             {{ref ('stg_player_awards')}}
         WHERE
             award = 'Olympic Gold Medal'
+        GROUP BY
+            player_id
     ),
-    eligible_players AS (
-        SELECT
-            player_id
-        FROM
-            star_players
-        UNION
-        SELECT
-            player_id
-        FROM
-            gold_medalists
-        UNION
-        SELECT
-            player_id
+    player_seasons AS (
+        SELECT DISTINCT
+            player_id,
+            season,
+            CAST(LEFT(season, 4) AS INT) AS season_year
         FROM
             {{ref ('stg_player_advanced_stats')}}
-        WHERE
-            possessions > 100
     )
 SELECT
-    player_id,
+    ps.player_id,
+    ps.season,
     CASE
-        WHEN player_id IN (
-            SELECT
-                player_id
-            FROM
-                gold_medalists
-        )
-        AND player_id IN (
-            SELECT
-                player_id
-            FROM
-                star_players
-        ) THEN 'Olympic Gold Medalist'
-        WHEN player_id IN (
-            SELECT
-                player_id
-            FROM
-                star_players
-        ) THEN 'Star'
+        WHEN sf.star_from_year <= ps.season_year
+        AND gf.gold_from_year <= ps.season_year THEN 'Olympic Gold Medalist'
+        WHEN sf.star_from_year <= ps.season_year THEN 'Star'
         ELSE 'Role'
     END AS group_tier
 FROM
-    eligible_players
+    player_seasons AS ps
+    LEFT JOIN star_from AS sf ON ps.player_id = sf.player_id
+    LEFT JOIN gold_from AS gf ON ps.player_id = gf.player_id

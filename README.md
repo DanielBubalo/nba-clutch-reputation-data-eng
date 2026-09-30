@@ -105,7 +105,7 @@ A staging layer (11 models, one per raw table) handles all column renaming; the 
 
 | Model | What it answers |
 |---|---|
-| `player_tier` | Classifies each player into a reputation tier — Role, Star, or Olympic Gold Medalist — based on career awards |
+| `player_tier` | Classifies each player-season into a reputation tier — Role, Star, or Olympic Gold Medalist — using only awards won before that season |
 | `player_clutch_performance` | One row per player-season, combining season-long and clutch-situation stats, with `ts_delta` measuring clutch vs. season shooting efficiency |
 | `home_vs_road` | Compares clutch performance at home vs. on the road |
 | `matchup_analysis` | Per primary-defender matchup, including the defender's own season defensive rating alongside the primary player's clutch performance |
@@ -116,7 +116,7 @@ A staging layer (11 models, one per raw table) handles all column renaming; the 
 
 All models are tested for row-level uniqueness (via `dbt_utils.unique_combination_of_columns` or `unique`/`not_null` on a surrogate key) and, where relevant, accepted-value constraints on categorical fields. `stg_clutch_shots` is tested on its natural key (`game_id` + `game_event_id`) rather than only its sequence-generated `shot_id`, and `shots_with_opponent` is tested with `dbt_utils.equal_rowcount` against `stg_clutch_shots` to catch shots silently dropped by joins.
 
-`player_tier`'s classification logic is covered by dbt unit tests (`unit_tests.yml`) using mocked award data, including one deliberate edge case: a player with an Olympic gold medal but no star-level NBA award is classified as Role, since the tier is meant to reflect NBA recognition specifically.
+`player_tier`'s classification logic is covered by dbt unit tests (`unit_tests.yml`) using mocked award data. They check that an award only counts from the following season (no look-ahead), that a gold medal without a star-level NBA award stays Role since the tier reflects NBA recognition specifically, and that players with no awards are kept rather than dropped by the joins.
 
 ### Materialization Strategy
 
@@ -139,46 +139,44 @@ Using `player_clutch_performance` (see `group_tier` and `ts_delta` definitions
 in the dbt Models table above), player-seasons were grouped by tier to compare
 clutch vs. season shooting efficiency. The unit of analysis is the
 player-*season*, not the unique player — a player appearing in 8 seasons
-contributes 8 rows to their tier's numbers. Query: `scratch/findings_ts_delta_by_tier.sql`.
+contributes 8 rows to their tier's numbers. Tiers only count awards won
+*before* a given season, so a player's early seasons count as Role until he
+has actually earned the reputation. Query: `scratch/findings_ts_delta_by_tier.sql`.
 
-| Tier                   | N (player-seasons) | Mean ts_delta | Median ts_delta | Stddev ts_delta | Mean usg_delta |
-|-------------------------|--------------------:|---------------:|------------------:|------------------:|----------------:|
-| Role                    | 3,534                | -0.0060         | -0.008             | 0.140              | -0.0272          |
-| Star                    | 989                   | -0.0133         | -0.013             | 0.092              | -0.0041          |
-| Olympic Gold Medalist   | 563                   | -0.0112         | -0.014             | 0.083              | +0.0158          |
+| Tier                  | N (player-seasons) | Mean ts_delta | Median ts_delta | Stddev ts_delta | Mean usg_delta |
+|-----------------------|-------------------:|--------------:|----------------:|----------------:|---------------:|
+| Role                  | 4,031              | -0.0065       | -0.008          | 0.135           | -0.0242        |
+| Star                  | 685                | -0.0153       | -0.016          | 0.088           | +0.0019        |
+| Olympic Gold Medalist | 370                | -0.0108       | -0.013          | 0.088           | +0.0136        |
 
 **All three tiers decline in the clutch** — no group shoots better than its own
-season average on average. There's no evidence here of a "clutch gene" that
-lifts efficiency above baseline.
+season average. There's no evidence here of a "clutch gene" that lifts
+efficiency above baseline.
 
-**Reputation does not predict who declines least.** Role players show the
-smallest drop by both mean and median (-0.006 / -0.008). Star and Olympic Gold
-Medalist are statistically indistinguishable from each other by median
-(-0.013 vs. -0.014), despite Star's larger sample and stronger public
-reputation for "stepping up."
+**Reputation doesn't protect clutch efficiency — Stars decline the most.** By
+both mean and median, Stars show the largest drop (-0.015 / -0.016) and Role
+players the smallest (-0.0065 / -0.008), with Olympic Gold Medalists in
+between. The Star–Role gap is about 2.2 standard errors, suggestive rather than
+conclusive; the Star–Olympic gap is well within noise.
 
-**Mean vs. median matters here.** The mean overstates how well Olympic Gold
-Medalist and Role tiers hold up — both show a meaningfully less-negative mean
-than median, indicating a right-skewed distribution where a subset of standout
-clutch stretches pulls the average above what the typical player-season
-actually looked like. Star's mean and median are nearly identical, so its
-average wasn't similarly flattered.
+**Usage tells the "how."** Role players' smaller drop comes with a real usage
+pullback (-0.024): they take on less of the offense in the clutch. Stars keep
+slightly *more* of the load (+0.002), and their efficiency falls the most —
+reputation gets them the ball, but doesn't make the shots go in. Olympic Gold
+Medalists increase usage the most (+0.014) while declining less than Stars.
 
-**Usage tells the "how."** Role players' smaller efficiency drop comes paired
-with a real usage pullback (-0.027) — they take on less of the offensive load
-in the clutch. Stars keep essentially the same shot diet as always
-(usg_delta ≈ 0) and their efficiency still falls the most of any tier. Olympic
-Gold Medalists are the outlier worth noting: usage actually *rises* (+0.016)
-in the clutch, while their efficiency decline lands in the middle of the pack
-— the closest thing in this dataset to "doing more without falling apart."
+**Removing look-ahead strengthened the result.** An earlier version labeled
+every season of a player's career by his career awards, so 497 seasons from
+before players earned their reputation were counted as Star or Olympic. With
+those moved to Role, the Star decline grew from -0.0133 to -0.0153 (mean) and
+the ranking became consistent across mean and median.
 
-**Caveat:** clutch-situation samples are smaller than season samples by
-construction (the clutch filter requires 15+ clutch games vs. 100+ season
-field goal attempts), so individual player-season `ts_delta` values carry more
-sampling noise than the season-long numbers they're compared against — part of
-why Role's spread (stddev 0.140) is nearly double Star's (0.092), and worth
-keeping in mind when citing any single player's number rather than a tier
-average.
+**Caveats:** clutch samples are smaller than season samples by construction
+(15+ clutch games vs. 100+ season field-goal attempts), so individual
+player-season values are noisy — part of why Role's spread (0.135) is much
+wider than Star's (0.088). Player-seasons also aren't independent, since the
+same player appears in many seasons, so the standard errors above are likely
+optimistic.
 
 ## Known Limitations & Deliberate Simplifications
 

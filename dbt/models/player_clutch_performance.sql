@@ -37,6 +37,7 @@ WITH
         FROM
             season_stats AS season
             JOIN {{ref ('player_tier')}} AS tier ON season.player_id = tier.player_id
+            AND season.season = tier.season
     ),
     with_clutch AS (
         SELECT
