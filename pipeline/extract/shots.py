@@ -7,6 +7,9 @@ from paths import cached_data_dir, db_path
 from extract.api import RETRYABLE_ERRORS, fetch_with_retry, raise_if_failures
 from nba_api.stats.endpoints import ShotChartDetail
 
+# Bump this whenever the shot filter changes so old cached files are never reused
+SHOTS_CACHE_VERSION = "v2"
+
 
 def get_player_seasons() -> pd.DataFrame:
     with duckdb.connect(str(db_path)) as con:
@@ -36,7 +39,7 @@ def clutch_shots_table(player_id: int, season: str) -> pd.DataFrame:
 def extract_all_shots(file_name: str) -> pd.DataFrame:
     pairs_df = get_player_seasons()
     all_shot_data = []
-    path_dir = cached_data_dir / "shots"
+    path_dir = cached_data_dir / f"shots_{SHOTS_CACHE_VERSION}"
     path_dir.mkdir(parents=True, exist_ok=True)
     failures = []
     for index, row in pairs_df.iterrows():

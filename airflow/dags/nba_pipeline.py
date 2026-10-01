@@ -4,6 +4,8 @@ from airflow.sdk import DAG
 from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 
+DBT = "/home/airflow/dbt_venv/bin/dbt"
+
 with DAG(
     dag_id="nba_clutch_pipeline",
     start_date=datetime(2024, 1, 1),
@@ -16,11 +18,11 @@ with DAG(
     )
     run_dbt_deps = BashOperator(
         task_id="run_dbt_deps",
-        bash_command="cd /opt/airflow/project/dbt && dbt deps --profiles-dir /opt/airflow/project/dbt",
+        bash_command=f"cd /opt/airflow/project/dbt && {DBT} deps --profiles-dir /opt/airflow/project/dbt",
     )
     run_dbt = BashOperator(
         task_id="run_dbt",
-        bash_command="cd /opt/airflow/project/dbt && dbt build --profiles-dir /opt/airflow/project/dbt",
+        bash_command=f"cd /opt/airflow/project/dbt && {DBT} build --exclude tag:shots --profiles-dir /opt/airflow/project/dbt",
     )
     trigger_shots = TriggerDagRunOperator(
         task_id="trigger_shots",

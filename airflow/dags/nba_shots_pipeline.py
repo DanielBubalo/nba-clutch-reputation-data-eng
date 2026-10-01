@@ -3,6 +3,8 @@ from datetime import datetime
 from airflow.sdk import DAG
 from airflow.providers.standard.operators.bash import BashOperator
 
+DBT = "/home/airflow/dbt_venv/bin/dbt"
+
 with DAG(
     dag_id="nba_clutch_shots",
     start_date=datetime(2024, 1, 1),
@@ -15,7 +17,7 @@ with DAG(
     )
     run_dbt = BashOperator(
         task_id="run_dbt",
-        bash_command="cd /opt/airflow/project/dbt && dbt build --profiles-dir /opt/airflow/project/dbt",
+        bash_command=f"cd /opt/airflow/project/dbt && {DBT} build --profiles-dir /opt/airflow/project/dbt",
     )
 
     run_load_shots >> run_dbt

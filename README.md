@@ -53,7 +53,8 @@ data_eng_project/
         tests/           — singular data tests (e.g. shot counts vs. official clutch FGA)
     airflow/
         Dockerfile                    — custom Airflow image with project dependencies
-        requirements.txt              — pinned packages installed into the image
+        requirements-dbt.txt          — dbt packages, installed into a separate venv in the image
+        requirements.txt              — pipeline packages, installed with Airflow's constraints file
         .env.example                  — template for required secrets (copy to .env)
         docker-compose.yaml
     scratch/
@@ -98,7 +99,7 @@ docker compose up -d              # starts the full stack
 ```
 Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (default login: `airflow` / `airflow`). The pipeline is split into two DAGs. `nba_clutch_pipeline` runs `main.py → dbt deps → dbt build`, then triggers `nba_clutch_shots`, which runs `load_shots.py → dbt build` so shot models are rebuilt and tested on the freshly loaded shots.
 
-> Note: Airflow runs on a custom image (`airflow/Dockerfile`) that installs the project's pinned dependencies from `airflow/requirements.txt` once, at build time, so containers start without reinstalling packages. Rebuild with `docker compose build` after changing those requirements. Secrets (fernet key, API secret key, JWT secret) are loaded from `airflow/.env`, which is gitignored; `airflow/.env.example` lists the required variables.
+> Note: Airflow runs on a custom image (`airflow/Dockerfile`). Pipeline packages (`airflow/requirements.txt`) are installed with Airflow's official constraints file, so they can't shift Airflow's own tested dependencies. dbt is installed in a separate virtual environment (`airflow/requirements-dbt.txt`, at `/home/airflow/dbt_venv`) because its dependencies conflict with Airflow's (for example, dbt-core requires `pathspec<1.1` while Airflow pins 1.1.1); the DAGs call dbt by that path. Versions are pinned identically to the root `requirements.txt`, so local and Airflow runs use the same code. Rebuild with `docker compose build` after changing any of these files. Secrets (fernet key, API secret key, JWT secret) are loaded from `airflow/.env`, which is gitignored; `airflow/.env.example` lists the required variables.
 
 ## dbt Models
 

@@ -1,5 +1,5 @@
 nba_api==1.11.4
 duckdb==1.5.5
-dbt-core==1.12.3
-dbt-duckdb==1.11.0
-dbt-core-experimental-parser==2.0.0b2
+pandas==3.0.5
+pyarrow==25.0.0
+requests==2.34.2

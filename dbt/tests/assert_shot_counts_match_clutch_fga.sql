@@ -1,3 +1,4 @@
+{{config (tags = ['shots'])}}
 WITH
     shot_counts AS (
         SELECT

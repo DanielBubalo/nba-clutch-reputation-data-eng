@@ -41,7 +41,7 @@ def main() -> None:
         "clutch_shots",
         file_path_clutch_shots,
         clutch_shots_columns,
-        ignore_duplicates=True,
+        replace_all=True,
     )
 
 

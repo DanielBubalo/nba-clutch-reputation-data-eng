@@ -1,3 +1,4 @@
+{{config (tags = ['shots'])}}
 WITH
     home_lookup AS (
         SELECT

@@ -15,6 +15,8 @@ sources:
       - name: primary_defenders_stats
       - name: player_awards
       - name: clutch_shots
+        config:
+          tags: ['shots']
         columns:
           - name: shot_id
             data_tests:

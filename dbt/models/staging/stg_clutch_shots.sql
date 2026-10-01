@@ -1,3 +1,4 @@
+{{config (tags = ['shots'])}}
 SELECT
     shot_id,
     GAME_ID AS game_id,
