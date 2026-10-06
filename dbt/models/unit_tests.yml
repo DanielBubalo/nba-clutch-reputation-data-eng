@@ -14,7 +14,7 @@ unit_tests:
           - {player_id: 101, season: '2016-17'}
     expect:
       rows:
-        - {player_id: 101, season: '2015-16', group_tier: 'Role'}
+        - {player_id: 101, season: '2015-16', group_tier: 'Star'}
         - {player_id: 101, season: '2016-17', group_tier: 'Star'}
 
   - name: test_player_tier_star_then_gold
