@@ -6,10 +6,16 @@ Usage (from the project root):
 
 import json
 import sys
+import time
 from pathlib import Path
 
 import anthropic
 import duckdb
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.markup import escape
+from rich.panel import Panel
+from rich.syntax import Syntax
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "nba_clutch.duckdb"
@@ -17,8 +23,17 @@ MANIFEST_PATH = ROOT / "dbt" / "target" / "manifest.json"
 MAX_ROWS = 50
 MODEL = "claude-sonnet-5-5"
 
+console = Console()  # the final answer
+trace = Console(stderr=True)  # the agent's working steps
+
 
 # ---------------------------------------------------------------- tools
+
+
+def format_column(name: str, dtype: str, column_docs: dict) -> str:
+    """Show a column's type, plus its schema.yml description if it has one."""
+    doc = column_docs.get(name, {}).get("description", "")
+    return f"{name} ({dtype}): {doc}" if doc else f"{name} ({dtype})"
 
 
 def describe_models() -> str:
@@ -36,7 +51,9 @@ def describe_models() -> str:
                 "WHERE table_name = ? ORDER BY ordinal_position",
                 [node["name"]],
             ).fetchall()
-            column_text = ", ".join(f"{name} ({dtype})" for name, dtype in columns)
+            column_text = ", ".join(
+                format_column(name, dtype, node["columns"]) for name, dtype in columns
+            )
             lines.append(
                 f"{node['name']}: {node['description']}\n  columns: {column_text}"
             )
@@ -97,7 +114,7 @@ Rules:
 - Every number in your answer must come from a query result in this conversation.
 - If a query fails, read the error, fix the query, and try again.
 - If the data cannot answer the question, say so plainly instead of guessing.
-- Finish with a short answer, then list the queries you used to get it."""
+- Finish with a short answer, then a "Queries used" section. Put each query in its own ```sql code block, formatted across several lines (SELECT, FROM, WHERE, ORDER BY each on their own line), with a short bold label above it saying what that query was for. Only include queries that shaped the answer."""
 
 
 def run_tool(name: str, tool_input: dict) -> str:
@@ -108,24 +125,62 @@ def run_tool(name: str, tool_input: dict) -> str:
     return f"Unknown tool: {name}"
 
 
+# ------------------------------------------------------------ display
+
+
+def show_tool_call(step: int, name: str, tool_input: dict, output: str) -> None:
+    """Print one tool call: what was asked, and a one-line summary of what came back."""
+    trace.print(f"\n[bold cyan]Step {step}[/] [cyan]{name}[/]")
+    if name == "run_sql":
+        trace.print(
+            Syntax(
+                tool_input.get("query", ""),
+                "sql",
+                theme="monokai",
+                word_wrap=True,
+                padding=(0, 2),
+            )
+        )
+
+    if output.startswith("Query failed"):
+        trace.print(f"  [bold red]✗ {escape(output.splitlines()[0])}[/]")
+    elif output == "Query returned no rows.":
+        trace.print("  [yellow]○ no rows[/]")
+    elif name == "describe_models":
+        trace.print(
+            f"  [green]✓[/] [dim]{output.count(chr(10) + chr(10)) + 1} tables described[/]"
+        )
+    else:
+        lines = output.splitlines()
+        if lines[-1].startswith("..."):
+            summary = lines[-1].strip(". ")
+        else:
+            summary = f"{len(lines) - 1} rows"
+        trace.print(f"  [green]✓[/] [dim]{summary}[/]")
+
+
 # ------------------------------------------------------------- the loop
 
 
 def ask(question: str, max_steps: int = 10) -> str:
     client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
     messages = [{"role": "user", "content": question}]
+    started = time.perf_counter()
 
     for step in range(1, max_steps + 1):
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=4096,
-            system=SYSTEM_PROMPT,
-            tools=TOOLS,
-            messages=messages,
-        )
+        with trace.status("[dim]Thinking…[/]", spinner="dots"):
+            response = client.messages.create(
+                model=MODEL,
+                max_tokens=4096,
+                system=SYSTEM_PROMPT,
+                tools=TOOLS,
+                messages=messages,
+            )
         messages.append({"role": "assistant", "content": response.content})
 
         if response.stop_reason != "tool_use":
+            elapsed = time.perf_counter() - started
+            trace.print(f"\n[dim]{step} steps · {elapsed:.1f}s[/]")
             return "".join(
                 block.text for block in response.content if block.type == "text"
             )
@@ -134,12 +189,8 @@ def ask(question: str, max_steps: int = 10) -> str:
         for block in response.content:
             if block.type != "tool_use":
                 continue
-            print(f"\n[step {step}] {block.name}", file=sys.stderr)
-            if block.name == "run_sql":
-                print(block.input.get("query", ""), file=sys.stderr)
             output = run_tool(block.name, block.input)
-            if output.startswith("Query failed"):
-                print(f" -> {output}", file=sys.stderr)
+            show_tool_call(step, block.name, block.input, output)
             results.append(
                 {"type": "tool_result", "tool_use_id": block.id, "content": output}
             )
@@ -151,4 +202,18 @@ def ask(question: str, max_steps: int = 10) -> str:
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         sys.exit('Usage: python3 agent/analyst.py "your question"')
-    print("\n" + ask(sys.argv[1]))
+    question = sys.argv[1]
+    console.print(
+        Panel(
+            escape(question), title="[bold]NBA Clutch Analyst[/]", border_style="cyan"
+        )
+    )
+    answer = ask(question)
+    console.print(
+        Panel(
+            Markdown(answer, code_theme="monokai"),
+            title="[bold]Answer[/]",
+            border_style="green",
+            padding=(1, 2),
+        )
+    )

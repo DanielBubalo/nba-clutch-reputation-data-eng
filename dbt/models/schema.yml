@@ -22,7 +22,7 @@ models:
               arguments:
                 values: ['Role', 'Star', 'Olympic Gold Medalist']
   - name: player_clutch_performance
-    description: "One row per player per season, combining season-long advanced/basic stats with clutch situation stats, filtered to have meaningful sample sizes on both sides."
+    description: "One row per player-season. Combines full-season advanced and basic stats with clutch stats (NBA clutch definition: last 5 minutes of the 4th quarter or overtime, score within 5 points). Only includes player-seasons with more than 100 season field goal attempts and at least 15 clutch games. There is no minimum on clutch shot attempts, so some rows rest on very few clutch shots (check fga_clutch). Columns ending in _clutch are clutch values and _season are full-season values. ts_delta and usg_delta are clutch minus season, so negative means lower in the clutch."
     columns:
       - name: ts_delta
         description: "Clutch true shooting percentage minus season true shooting percentage. Positive means the player shoots better in the clutch than their season average."
@@ -35,7 +35,7 @@ models:
               - player_id
               - season
   - name: home_vs_road
-    description: "One row per player per season, comparing clutch performance at home versus on the road, filtered to players with at least 8 clutch games in each setting."
+    description: "One row per player-season, comparing clutch performance at home versus on the road, limited to players with at least 8 clutch games in each setting. ts_home_road_gap is home minus road true shooting, so positive means better at home."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -43,7 +43,7 @@ models:
               - player_id
               - season
   - name: matchup_analysis
-    description: "One row per primary defender, season, and defender matchup, including the defender's own season defensive rating and the primary player's clutch ts_delta."
+    description: "One row per offensive player, defender, and season. player_id is the offensive player and defensive_player_id is a defender who guarded them. Only includes offensive players who appear in player_clutch_performance. defender_defensive_rating is the defender's own full-season defensive rating. ts_delta and group_tier belong to the offensive player, copied from player_clutch_performance. matchup_minutes is stored as text, so cast it to a number before sorting or comparing."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -52,7 +52,7 @@ models:
               - season
               - defensive_player_id
   - name: star_player_performance
-    description: "Subset of player_clutch_performance limited to Star and Olympic Gold Medalist tier players, with each player's first award winning season attached."
+    description: "One row per player-season. The rows of player_clutch_performance where group_tier is Star or Olympic Gold Medalist, with the same columns plus first_award_season, the player's first award-winning season."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -60,7 +60,7 @@ models:
              - player_id
              - season
   - name: player_clutch_playmaking
-    description: "player_clutch_performance extended with season long assist and rebound percentages, for comparing playmaking involvement alongside clutch scoring metrics."
+    description: "One row per player-season. All rows and columns of player_clutch_performance plus assist_pct_season and rebound_pct_season, for comparing clutch and full-season playmaking."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -68,7 +68,7 @@ models:
               - player_id
               - season
   - name: shots_with_opponent
-    description: "Clutch shots joined to the shooter's opponent team and that opponent's season defensive rating."
+    description: "One row per clutch shot attempt (NBA clutch definition), only for player-seasons in player_clutch_performance. shot_made_flag is 1 for a make and 0 for a miss. opponent_team_id is the team the shooter played against, and defensive_rating is that opponent team's full-season defensive rating. ts_delta and group_tier are the shooter's player-season values from player_clutch_performance, repeated on every shot."
     data_tests:
       - dbt_utils.equal_rowcount:
           arguments:

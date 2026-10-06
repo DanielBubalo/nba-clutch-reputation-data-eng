@@ -5,7 +5,7 @@ An ELT pipeline that extracts NBA player and team statistics via `nba_api`, load
 ## Architecture
 
 ```
-nba_api  →  Python (Extract + Load)  →  DuckDB  →  dbt (Transform)  →  7 analysis models
+nba_api  →  Python (Extract + Load)  →  DuckDB  →  dbt (Transform)  →  7 analysis models  →  Analyst agent (read-only Q&A)
                                                                               ↓
                                                               Orchestrated end-to-end by Airflow (Docker)
 ```
@@ -13,10 +13,12 @@ nba_api  →  Python (Extract + Load)  →  DuckDB  →  dbt (Transform)  →  7
 The pipeline follows a strict ELT pattern with three sequential stages:
 
 1. **Extract + Load** (`pipeline/main.py`) — pulls raw data from 8 `nba_api` endpoints across every season from 2004-05 to 2025-26, caches responses as parquet, and loads them into DuckDB as raw tables. Failed API calls are retried with exponential backoff; anything still failing is written to a manifest in `pipeline/cached_data/failures/` and the run exits with an error, so incomplete data (like a player missing their awards, which would wrongly classify them as Role) never reaches dbt. Successful calls stay cached, so a rerun only re-fetches what failed.
-2. **Transform** (`dbt build`) — builds the staging layer and analysis models, and runs all data and unit tests, entirely in SQL.
-3. **Shot extraction** (`pipeline/load_shots.py`) — pulls clutch shot-chart data, scoped to the ~5,086 player-seasons already qualifying in the `player_clutch_performance` dbt model (rather than every player-season in NBA history). Because this step queries a dbt model, it must run *after* stage 2, not alongside stage 1 — this is why it's a separate script rather than folded into `main.py`. Raw tables store true, unrenamed API field names; a dedicated dbt staging layer `(models/staging/)` handles all renaming to friendly, analysis-ready column names — this logic previously lived in Python's load step and was moved into dbt so naming conventions are version-controlled, testable, and visible in the lineage graph.
+2. **Transform** (`dbt build --exclude tag:shots`) — builds the staging layer and analysis models, and runs all data and unit tests, entirely in SQL. Shot models and their tests are tagged `shots` and skipped here, because the shots haven't been loaded yet.
+3. **Shot extraction** (`pipeline/load_shots.py`, then a full `dbt build`) — pulls clutch shot-chart data, scoped to the ~5,086 player-seasons already qualifying in the `player_clutch_performance` dbt model (rather than every player-season in NBA history). Because this step queries a dbt model, it must run *after* stage 2, not alongside stage 1 — this is why it's a separate script rather than folded into `main.py`. A final full `dbt build` then builds and tests the shot models on the freshly loaded shots.
 
-All three stages are orchestrated by two Airflow DAGs, running in a local Docker Compose environment (CeleryExecutor, Postgres, Redis): `nba_clutch_pipeline` handles stages 1–2, then triggers `nba_clutch_shots` for stage 3 and a final dbt rebuild.
+Raw tables store true, unrenamed API field names; a dedicated dbt staging layer (`models/staging/`) handles all renaming to friendly, analysis-ready column names — this logic previously lived in Python's load step and was moved into dbt so naming conventions are version-controlled, testable, and visible in the lineage graph.
+
+All three stages are orchestrated by two Airflow DAGs, running in a local Docker Compose environment (CeleryExecutor, Postgres, Redis): `nba_clutch_pipeline` handles stages 1–2, then triggers `nba_clutch_shots` for stage 3 and the final dbt rebuild.
 
 ## Data Sources
 
@@ -38,12 +40,13 @@ All data comes from the unofficial `nba_api` Python package, covering Regular Se
 ```
 data_eng_project/
     pipeline/
-        extract/        — one module per data domain (stats, matchups, awards, shots, static)
+        extract/         — one module per data domain (stats, matchups, awards, shots, static)
             api.py       — shared retry-with-backoff and failure-manifest helpers
         load/            — save/load utilities, missing-player backfill logic
         main.py          — orchestrates the full raw EL run
         load_shots.py    — separate script for shot extraction (see Architecture)
         checks.py        — data validation helpers
+        cached_data/     — per-call parquet cache, avoids re-hitting the API on reruns (gitignored)
     dbt/
         models/
             staging/     — 11 staging models, renaming raw columns to friendly names
@@ -51,6 +54,8 @@ data_eng_project/
             sources.yml, schema.yml (data tests & descriptions), unit_tests.yml
         dbt_project.yml
         tests/           — singular data tests (e.g. shot counts vs. official clutch FGA)
+    agent/
+        analyst.py       — analyst agent: answers questions with read-only SQL (see Analyst Agent)
     airflow/
         Dockerfile                    — custom Airflow image with project dependencies
         requirements-dbt.txt          — dbt packages, installed into a separate venv in the image
@@ -62,14 +67,13 @@ data_eng_project/
         findings_ts_delta_by_tier.sql    — query behind the Findings section below
     setup.sh             — one-command dependency install (Python + dbt packages)
     requirements.txt     — pinned Python dependencies
-    nba_schema.sql       — full raw table DDL
-    nba_clutch.duckdb    — the database itself
-    cached_data/         — per-table parquet cache, avoids re-hitting the API on reruns
+    nba_schema.sql       — full raw table DDL (idempotent, run on every main.py run)
+    nba_clutch.duckdb    — the database itself, created by the pipeline (gitignored)
 ```
 
 ## Setup & Running
 
-**Requirements:** Python 3.13, Docker Desktop (for Airflow). Python dependencies are pinned in `requirements.txt`.
+**Requirements:** Python 3.13, Docker Desktop (for Airflow). Python dependencies are pinned in `requirements.txt`. The analyst agent also needs an Anthropic API key (see Analyst Agent).
 
 **Install dependencies:**
 ```bash
@@ -83,10 +87,10 @@ source .venv/bin/activate    # skip if you're using your own conda/venv
 
 **Run manually**, in this exact order (each stage depends on the previous one completing):
 ```bash
-python3 pipeline/main.py                  # raw extract + load — ~51 min on a fresh run (empty cache)
-cd dbt && dbt build --profiles-dir .      # builds all models and runs all data + unit tests
-cd .. && python3 pipeline/load_shots.py   # shot extraction — ~2h39m on a fresh run; requires dbt build first
-cd dbt && dbt build --profiles-dir .      # rebuild so shot models and their tests run on the loaded shots
+python3 -u pipeline/main.py                                  # raw extract + load — ~51 min on a fresh run (empty cache)
+cd dbt && dbt build --exclude tag:shots --profiles-dir .     # builds and tests everything except the shot models
+cd .. && python3 -u pipeline/load_shots.py                   # shot extraction — ~2h39m on a fresh run; requires the build above
+cd dbt && dbt build --profiles-dir . && cd ..                # full rebuild so shot models and their tests run on the loaded shots
 ```
 
 **Run via Airflow** (recommended — handles the sequencing automatically):
@@ -97,7 +101,7 @@ docker compose build              # builds the custom image with project depende
 docker compose up airflow-init    # one-time setup
 docker compose up -d              # starts the full stack
 ```
-Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (default login: `airflow` / `airflow`). The pipeline is split into two DAGs. `nba_clutch_pipeline` runs `main.py → dbt deps → dbt build`, then triggers `nba_clutch_shots`, which runs `load_shots.py → dbt build` so shot models are rebuilt and tested on the freshly loaded shots.
+Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (default login: `airflow` / `airflow`). The pipeline is split into two DAGs. `nba_clutch_pipeline` runs `main.py → dbt deps → dbt build --exclude tag:shots`, then triggers `nba_clutch_shots`, which runs `load_shots.py → dbt build` so shot models are rebuilt and tested on the freshly loaded shots.
 
 > Note: Airflow runs on a custom image (`airflow/Dockerfile`). Pipeline packages (`airflow/requirements.txt`) are installed with Airflow's official constraints file, so they can't shift Airflow's own tested dependencies. dbt is installed in a separate virtual environment (`airflow/requirements-dbt.txt`, at `/home/airflow/dbt_venv`) because its dependencies conflict with Airflow's (for example, dbt-core requires `pathspec<1.1` while Airflow pins 1.1.1); the DAGs call dbt by that path. Versions are pinned identically to the root `requirements.txt`, so local and Airflow runs use the same code. Rebuild with `docker compose build` after changing any of these files. Secrets (fernet key, API secret key, JWT secret) are loaded from `airflow/.env`, which is gitignored; `airflow/.env.example` lists the required variables.
 
@@ -108,9 +112,9 @@ A staging layer (11 models, one per raw table) handles all column renaming; the 
 | Model | What it answers |
 |---|---|
 | `player_tier` | Classifies each player-season into a reputation tier — Role, Star, or Olympic Gold Medalist — using only awards won before that season |
-| `player_clutch_performance` | One row per player-season, combining season-long and clutch-situation stats, with `ts_delta` measuring clutch vs. season shooting efficiency |
+| `player_clutch_performance` | One row per player-season with more than 100 season FGA and at least 15 clutch games, combining season-long and clutch stats, with `ts_delta` (clutch minus season true shooting) measuring the clutch change |
 | `home_vs_road` | Compares clutch performance at home vs. on the road |
-| `matchup_analysis` | Per primary-defender matchup, including the defender's own season defensive rating alongside the primary player's clutch performance |
+| `matchup_analysis` | One row per offensive player, defender, and season, with the defender's own season defensive rating alongside the offensive player's clutch `ts_delta` |
 | `star_player_performance` | Subset of `player_clutch_performance` limited to Star/Olympic tier players, with each player's first award-winning season attached |
 | `player_clutch_playmaking` | Adds season-long assist/rebound involvement alongside clutch scoring metrics |
 | `shots_with_opponent` | Every clutch shot attempt joined to the shooter's opponent team and that opponent's season defensive rating |
@@ -119,6 +123,8 @@ A staging layer (11 models, one per raw table) handles all column renaming; the 
 All models are tested for row-level uniqueness (via `dbt_utils.unique_combination_of_columns` or `unique`/`not_null` on a surrogate key) and, where relevant, accepted-value constraints on categorical fields. `stg_clutch_shots` is tested on its natural key (`game_id` + `game_event_id`) rather than only its sequence-generated `shot_id`, and `shots_with_opponent` is tested with `dbt_utils.equal_rowcount` against `stg_clutch_shots` to catch shots silently dropped by joins. A singular test (`tests/assert_shot_counts_match_clutch_fga.sql`) checks that each player-season's clutch shot count matches its official clutch field-goal attempts, so the shot and stats datasets can't drift onto different clutch definitions.
 
 `player_tier`'s classification logic is covered by dbt unit tests (`unit_tests.yml`) using mocked award data. They check that an award only counts from the following season (no look-ahead), that a gold medal without a star-level NBA award stays Role since the tier reflects NBA recognition specifically, and that players with no awards are kept rather than dropped by the joins.
+
+Model and column descriptions in `schema.yml` state each model's grain and the direction of every delta column. They're written for human readers and are also what the analyst agent reads to understand the data.
 
 ### Materialization Strategy
 
@@ -180,10 +186,42 @@ wider than Star's (0.088). Player-seasons also aren't independent, since the
 same player appears in many seasons, so the standard errors above are likely
 optimistic.
 
+## Analyst Agent
+
+`agent/analyst.py` answers questions about the data in plain English. It's a Claude model running in a loop with two tools: `describe_models`, which reads each analysis model's description and column descriptions from dbt's manifest along with the column types from DuckDB, and `run_sql`, which runs a query and returns the result as text. The agent decides which tool to call, reads the result, and repeats until it can answer. Each step and query is printed as it runs, so you can check how an answer was reached, not just what it says.
+
+The pipeline itself stays deterministic: the agent never extracts, loads, or transforms data. It only reads the finished analysis models.
+
+**Setup**
+1. Create an API key in the Claude Console and add credits.
+2. Set the key in your terminal, never in a file or the repo:
+```bash
+   read -s "ANTHROPIC_API_KEY?Paste key: "    # zsh; hides the key and keeps it out of shell history
+   export ANTHROPIC_API_KEY
+```
+3. Make sure dbt's manifest exists: `cd dbt && dbt parse --profiles-dir . && cd ..`
+
+**Usage** (from the project root)
+```bash
+python3 agent/analyst.py "Do Stars or Role players decline more in the clutch on average?"
+python3 agent/analyst.py --verbose "Which Star player-seasons had the biggest clutch decline?"
+```
+`--verbose` also prints each tool's full output, which is useful when checking whether a wrong answer came from missing information or a misreading.
+
+**Guardrails**
+- DuckDB is opened with `read_only=True`, so writes are refused by the database itself, not just discouraged by the prompt.
+- The agent only sees the analysis models, never staging or raw tables.
+- The system prompt requires every number to come from a query result, and asks the agent to say so when the data can't answer.
+- Query results are capped at 50 rows, and the loop stops after 10 steps.
+- Don't run the agent while `main.py`, `load_shots.py`, or a dbt build is writing. DuckDB allows one writer at a time, and the read-only connection will fail with a lock error.
+
+The agent's answers are only as good as the descriptions in `dbt/models/schema.yml`. If it misreads a column or a model's grain, fix the description, rerun `dbt parse`, and ask again.
+
 ## Known Limitations & Deliberate Simplifications
 
 - **Clutch uses the NBA's official definition everywhere:** the last 5 minutes of the 4th quarter or overtime, with the score within 5 points. Both the clutch stats (`LeagueDashPlayerClutch`) and the clutch shots (`ShotChartDetail`) request this definition from the API, and a dbt test checks that every player-season's shot count equals its official clutch field-goal attempts. An earlier version filtered shots by time only, which ignored the score and captured about six minutes instead of five; for LeBron James in 2015-16, that produced 205 "clutch" shots where the official count was 92.
+- **No minimum on clutch shot attempts.** A player-season qualifies with 15+ clutch games and 100+ season field-goal attempts, but some take very few clutch shots (as few as 7 among Stars), so the most extreme `ts_delta` values rest on tiny samples.
 - **Season range is hardcoded** to 2004-05 through 2025-26.
-- **Load strategy is full-reprocess**, not incrementally extracted — every run re-checks all cached data (`INSERT OR REPLACE` for stats tables, `INSERT OR IGNORE` for shots) rather than only pulling genuinely new records.
-- **<NULL> of <TOTAL> clutch shots** have no recorded shot location
+- **Load strategy is full-reprocess**, not incrementally extracted. Stats tables are loaded with `INSERT OR REPLACE`, and the shots table is emptied and reloaded in a single transaction on every run (with a versioned shot cache), so stale shots can't linger. Every run re-checks all cached data rather than only pulling genuinely new records.
+- **20 of 159,335 clutch shots** have no recorded shot location.
 - **Current-season handling isn't implemented** — there's no logic to distinguish an in-progress season from a completed one, so a season fetched mid-year would be cached as if final.

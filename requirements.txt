@@ -7,3 +7,4 @@ dbt-core==1.12.3
 dbt-duckdb==1.11.0
 dbt-core-experimental-parser==2.0.0b2
 anthropic==1.11.0
+rich==15.0.0
