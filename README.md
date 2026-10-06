@@ -1,13 +1,34 @@
-# NBA Clutch Reputation Database
+# 🏀 NBA Clutch Reputation Database
 
-An ELT pipeline that extracts NBA player and team statistics via `nba_api`, loads them into DuckDB, and transforms them with dbt to analyze how players' clutch performance compares to their season-long performance and reputation tier — do "Stars" actually perform better in the clutch, or does reputation outpace results?
+![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
+![DuckDB](https://img.shields.io/badge/DuckDB-1.5.5-FFF000?logo=duckdb&logoColor=black)
+![dbt](https://img.shields.io/badge/dbt-1.12-FF694B?logo=dbt&logoColor=white)
+![Airflow](https://img.shields.io/badge/Airflow-3.3-017CEE?logo=apacheairflow&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Claude](https://img.shields.io/badge/Agent-Claude-D97757?logo=anthropic&logoColor=white)
+
+> [!IMPORTANT]
+> **Stars decline the most in the clutch.** Across 5,086 player-seasons (2004-05 to 2025-26), every reputation tier shoots worse in the clutch than over the full season, and Stars drop the most: −1.5 points of true shooting vs. −0.65 for role players. Reputation gets them the ball, but it doesn't make the shots go in.
+
+An ELT pipeline that extracts NBA player and team statistics via `nba_api`, loads them into DuckDB, and transforms them with dbt to analyze how players' clutch performance compares to their season-long performance and reputation tier — do "Stars" actually perform better in the clutch, or does reputation outpace results? An analyst agent sits on top, answering questions about the data in plain English with read-only SQL.
 
 ## Architecture
 
-```
-nba_api  →  Python (Extract + Load)  →  DuckDB  →  dbt (Transform)  →  7 analysis models  →  Analyst agent (read-only Q&A)
-                                                                              ↓
-                                                              Orchestrated end-to-end by Airflow (Docker)
+```mermaid
+flowchart LR
+    API[nba_api] --> EL[Python extract + load<br/>parquet cache, retries]
+    EL --> DB[(DuckDB)]
+    DB --> STG[dbt staging<br/>11 models]
+    STG --> AN[dbt analysis<br/>7 models + tests]
+    AN --> SHOTS[load_shots.py]
+    SHOTS --> DB
+    AN --> AGENT[Analyst agent<br/>read-only SQL]
+    subgraph Airflow
+        EL
+        STG
+        AN
+        SHOTS
+    end
 ```
 
 The pipeline follows a strict ELT pattern with three sequential stages:
@@ -62,6 +83,8 @@ data_eng_project/
         requirements.txt              — pipeline packages, installed with Airflow's constraints file
         .env.example                  — template for required secrets (copy to .env)
         docker-compose.yaml
+    docs/
+        agent-demo.png   — screenshot of the analyst agent
     scratch/
         nba_data_load.ipynb              — ad-hoc notebook for testing snippets
         findings_ts_delta_by_tier.sql    — query behind the Findings section below
@@ -81,8 +104,10 @@ data_eng_project/
 source .venv/bin/activate    # skip if you're using your own conda/venv
 ```
 
+> [!TIP]
 > **macOS + python.org Python:** if setup fails with `CERTIFICATE_VERIFY_FAILED`, run `"/Applications/Python 3.13/Install Certificates.command"` once, then rerun `./setup.sh`.
 
+> [!NOTE]
 > The database and parquet cache aren't in the repo, so a fresh clone must run the full pipeline once: about 51 minutes for `main.py` and 2h39m for `load_shots.py` (roughly 3.5 hours total), since every season is pulled from the API. Runtimes vary with NBA API responsiveness. Later runs read from the local cache and are much faster.
 
 **Run manually**, in this exact order (each stage depends on the previous one completing):
@@ -103,7 +128,12 @@ docker compose up -d              # starts the full stack
 ```
 Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (default login: `airflow` / `airflow`). The pipeline is split into two DAGs. `nba_clutch_pipeline` runs `main.py → dbt deps → dbt build --exclude tag:shots`, then triggers `nba_clutch_shots`, which runs `load_shots.py → dbt build` so shot models are rebuilt and tested on the freshly loaded shots.
 
-> Note: Airflow runs on a custom image (`airflow/Dockerfile`). Pipeline packages (`airflow/requirements.txt`) are installed with Airflow's official constraints file, so they can't shift Airflow's own tested dependencies. dbt is installed in a separate virtual environment (`airflow/requirements-dbt.txt`, at `/home/airflow/dbt_venv`) because its dependencies conflict with Airflow's (for example, dbt-core requires `pathspec<1.1` while Airflow pins 1.1.1); the DAGs call dbt by that path. Versions are pinned identically to the root `requirements.txt`, so local and Airflow runs use the same code. Rebuild with `docker compose build` after changing any of these files. Secrets (fernet key, API secret key, JWT secret) are loaded from `airflow/.env`, which is gitignored; `airflow/.env.example` lists the required variables.
+<details>
+<summary><b>Why a custom Airflow image and a separate dbt venv?</b></summary>
+
+Airflow runs on a custom image (`airflow/Dockerfile`). Pipeline packages (`airflow/requirements.txt`) are installed with Airflow's official constraints file, so they can't shift Airflow's own tested dependencies. dbt is installed in a separate virtual environment (`airflow/requirements-dbt.txt`, at `/home/airflow/dbt_venv`) because its dependencies conflict with Airflow's (for example, dbt-core requires `pathspec<1.1` while Airflow pins 1.1.1); the DAGs call dbt by that path. Versions are pinned identically to the root `requirements.txt`, so local and Airflow runs use the same code. Rebuild with `docker compose build` after changing any of these files. Secrets (fernet key, API secret key, JWT secret) are loaded from `airflow/.env`, which is gitignored; `airflow/.env.example` lists the required variables.
+
+</details>
 
 ## dbt Models
 
@@ -126,20 +156,14 @@ All models are tested for row-level uniqueness (via `dbt_utils.unique_combinatio
 
 Model and column descriptions in `schema.yml` state each model's grain and the direction of every delta column. They're written for human readers and are also what the analyst agent reads to understand the data.
 
-### Materialization Strategy
+<details>
+<summary><b>Materialization strategy: why one table and the rest views</b></summary>
 
-All models build as views by default (set in `dbt_project.yml`). The one
-exception is `player_clutch_performance`, materialized as a table via a
-per-model `{{ config(materialized='table') }}` override, because it's
-referenced by `ref()` in five other models — `home_vs_road`,
-`matchup_analysis`, `player_clutch_playmaking`, `shots_with_opponent`, and
-`star_player_performance` — each of which would otherwise re-run its full
-join (season stats + clutch stats + `player_tier` + player names)
-independently on every build. Materializing it once means that join runs a
-single time and gets read, not recomputed, by each downstream model.
+All models build as views by default (set in `dbt_project.yml`). The one exception is `player_clutch_performance`, materialized as a table via a per-model `{{ config(materialized='table') }}` override, because it's referenced by `ref()` in five other models — `home_vs_road`, `matchup_analysis`, `player_clutch_playmaking`, `shots_with_opponent`, and `star_player_performance` — each of which would otherwise re-run its full join (season stats + clutch stats + `player_tier` + player names) independently on every build. Materializing it once means that join runs a single time and gets read, not recomputed, by each downstream model.
 
-Staging models also have multiple consumers, but they're simple
-column-renaming selects, cheap enough to stay views. No other model combines an expensive join with multiple downstream consumers, so the rest stay views until there's an actual case for change — likely once the planned dashboard starts querying them directly and repeatedly.
+Staging models also have multiple consumers, but they're simple column-renaming selects, cheap enough to stay views. No other model combines an expensive join with multiple downstream consumers, so the rest stay views until there's an actual case for change — likely once the planned dashboard starts querying them directly and repeatedly.
+
+</details>
 
 ## Findings: Does Clutch Reputation Match Clutch Results?
 
@@ -150,6 +174,14 @@ player-*season*, not the unique player — a player appearing in 8 seasons
 contributes 8 rows to their tier's numbers. Tiers only count awards won
 *before* a given season, so a player's early seasons count as Role until he
 has actually earned the reputation. Query: `scratch/findings_ts_delta_by_tier.sql`.
+
+```mermaid
+xychart-beta
+    title "Mean clutch change in true shooting (clutch − season)"
+    x-axis ["Role", "Olympic Gold", "Star"]
+    y-axis "ts_delta" -0.02 --> 0
+    bar [-0.0065, -0.0108, -0.0153]
+```
 
 | Tier                  | N (player-seasons) | Mean ts_delta | Median ts_delta | Stddev ts_delta | Mean usg_delta |
 |-----------------------|-------------------:|--------------:|----------------:|----------------:|---------------:|
@@ -179,14 +211,12 @@ before players earned their reputation were counted as Star or Olympic. With
 those moved to Role, the Star decline grew from -0.0133 to -0.0153 (mean) and
 the ranking became consistent across mean and median.
 
-**Caveats:** clutch samples are smaller than season samples by construction
-(15+ clutch games vs. 100+ season field-goal attempts), so individual
-player-season values are noisy — part of why Role's spread (0.135) is much
-wider than Star's (0.088). Player-seasons also aren't independent, since the
-same player appears in many seasons, so the standard errors above are likely
-optimistic.
+> [!NOTE]
+> **Caveats:** clutch samples are smaller than season samples by construction (15+ clutch games vs. 100+ season field-goal attempts), so individual player-season values are noisy — part of why Role's spread (0.135) is much wider than Star's (0.088). Player-seasons also aren't independent, since the same player appears in many seasons, so the standard errors above are likely optimistic.
 
 ## Analyst Agent
+
+![Analyst agent answering a question](docs/agent-demo.png)
 
 `agent/analyst.py` answers questions about the data in plain English. It's a Claude model running in a loop with two tools: `describe_models`, which reads each analysis model's description and column descriptions from dbt's manifest along with the column types from DuckDB, and `run_sql`, which runs a query and returns the result as text. The agent decides which tool to call, reads the result, and repeats until it can answer. Each step and query is printed as it runs, so you can check how an answer was reached, not just what it says.
 
@@ -213,11 +243,16 @@ python3 agent/analyst.py --verbose "Which Star player-seasons had the biggest cl
 - The agent only sees the analysis models, never staging or raw tables.
 - The system prompt requires every number to come from a query result, and asks the agent to say so when the data can't answer.
 - Query results are capped at 50 rows, and the loop stops after 10 steps.
-- Don't run the agent while `main.py`, `load_shots.py`, or a dbt build is writing. DuckDB allows one writer at a time, and the read-only connection will fail with a lock error.
+
+> [!WARNING]
+> Don't run the agent while `main.py`, `load_shots.py`, or a dbt build is writing. DuckDB allows one writer at a time, and the read-only connection will fail with a lock error.
 
 The agent's answers are only as good as the descriptions in `dbt/models/schema.yml`. If it misreads a column or a model's grain, fix the description, rerun `dbt parse`, and ask again.
 
 ## Known Limitations & Deliberate Simplifications
+
+> [!WARNING]
+> These are known trade-offs, documented so the results can be read with the right level of confidence.
 
 - **Clutch uses the NBA's official definition everywhere:** the last 5 minutes of the 4th quarter or overtime, with the score within 5 points. Both the clutch stats (`LeagueDashPlayerClutch`) and the clutch shots (`ShotChartDetail`) request this definition from the API, and a dbt test checks that every player-season's shot count equals its official clutch field-goal attempts. An earlier version filtered shots by time only, which ignored the score and captured about six minutes instead of five; for LeBron James in 2015-16, that produced 205 "clutch" shots where the official count was 92.
 - **No minimum on clutch shot attempts.** A player-season qualifies with 15+ clutch games and 100+ season field-goal attempts, but some take very few clutch shots (as few as 7 among Stars), so the most extreme `ts_delta` values rest on tiny samples.
