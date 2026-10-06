@@ -15,14 +15,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-versions: "3.13"
+          python-version: "3.13"
           cache: pip
 
       - name: Install pinned dependencies
         run: pip install -r requirements.txt
 
       - name: Create an empty database from the raw schema
-        run: python -c "import duckdb, pathlib; duckdb.connect('nba_clutch.duckdb').execute(pathlib.Path('nba_schema').read_text())"
+        run: python -c "import duckdb, pathlib; duckdb.connect('nba_clutch.duckdb').execute(pathlib.Path('nba_schema.sql').read_text())"
 
       - name: Install dbt packages
         working-directory: dbt
