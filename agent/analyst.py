@@ -6,6 +6,7 @@ Usage (from the project root):
 
 import json
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -21,13 +22,36 @@ ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "nba_clutch.duckdb"
 MANIFEST_PATH = ROOT / "dbt" / "target" / "manifest.json"
 MAX_ROWS = 50
+MAX_STEPS = 10
+MAX_TOKENS = 8192
+QUERY_TIMEOUT_SECONDS = 30
 MODEL = "claude-sonnet-5-5"
 
 console = Console()  # the final answer
 trace = Console(stderr=True)  # the agent's working steps
+VERBOSE = False  # set by --verbose: print each tool's full output in the trace
 
 
 # ---------------------------------------------------------------- tools
+
+
+def connect() -> duckdb.DuckDBPyConnection:
+    """Open the database read-only, with no access to files, other databases, or the network."""
+    con = duckdb.connect(
+        str(DB_PATH), read_only=True, config={"enable_external_access": False}
+    )
+    con.execute("SET lock_configuration = true")  # the query can't switch it back on
+    return con
+
+
+def check_query(con: duckdb.DuckDBPyConnection, query: str) -> str | None:
+    """Return a reason to reject the query, or None if it's a single SELECT."""
+    statements = con.extract_statements(query)
+    if len(statements) != 1:
+        return f"Send exactly one statement per query (got {len(statements)})."
+    if statements[0].type != duckdb.StatementType.SELECT:
+        return f"Only SELECT queries are allowed (got {statements[0].type.name})."
+    return None
 
 
 def format_column(name: str, dtype: str, column_docs: dict) -> str:
@@ -42,7 +66,7 @@ def describe_models() -> str:
         return "manifest.json not found. Run `dbt parse --profiles-dir .` from dbt/."
     manifest = json.loads(MANIFEST_PATH.read_text())
     lines = []
-    with duckdb.connect(str(DB_PATH), read_only=True) as con:
+    with connect() as con:
         for node in manifest["nodes"].values():
             if node["resource_type"] != "model" or node["path"].startswith("staging/"):
                 continue
@@ -61,10 +85,20 @@ def describe_models() -> str:
 
 
 def run_sql(query: str) -> str:
-    """Run one read-only query and return the result as text."""
+    """Run one guarded, read-only query and return the result as text."""
     try:
-        with duckdb.connect(str(DB_PATH), read_only=True) as con:
-            df = con.execute(query).df()
+        with connect() as con:
+            rejection = check_query(con, query)
+            if rejection:
+                return f"Query failed: {rejection}"
+            timer = threading.Timer(QUERY_TIMEOUT_SECONDS, con.interrupt)
+            timer.start()
+            try:
+                df = con.execute(query).df()
+            finally:
+                timer.cancel()
+    except duckdb.InterruptException:
+        return f"Query failed: timed out after {QUERY_TIMEOUT_SECONDS} seconds. Simplify it or add filters."
     except Exception as error:
         return f"Query failed: {error}"
     if df.empty:
@@ -158,11 +192,26 @@ def show_tool_call(step: int, name: str, tool_input: dict, output: str) -> None:
             summary = f"{len(lines) - 1} rows"
         trace.print(f"  [green]✓[/] [dim]{summary}[/]")
 
+    if VERBOSE:
+        trace.print(Panel(escape(output), border_style="dim", padding=(0, 1)))
+
 
 # ------------------------------------------------------------- the loop
 
+# How each way of finishing is reported: (complete?, colour, message shown to you)
+STOP_REASONS = {
+    "end_turn": (True, "green", "✓ Complete: the agent finished its answer"),
+    "max_tokens": (
+        False,
+        "yellow",
+        f"⚠ Truncated: the answer hit the {MAX_TOKENS:,}-token output limit",
+    ),
+    "refusal": (False, "red", "✗ Stopped: the model declined to answer"),
+}
 
-def ask(question: str, max_steps: int = 10) -> str:
+
+def ask(question: str, max_steps: int = MAX_STEPS) -> tuple[str, bool]:
+    """Run the agent. Returns (answer text, whether the answer is complete)."""
     client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
     messages = [{"role": "user", "content": question}]
     started = time.perf_counter()
@@ -171,49 +220,76 @@ def ask(question: str, max_steps: int = 10) -> str:
         with trace.status("[dim]Thinking…[/]", spinner="dots"):
             response = client.messages.create(
                 model=MODEL,
-                max_tokens=4096,
+                max_tokens=MAX_TOKENS,
                 system=SYSTEM_PROMPT,
                 tools=TOOLS,
                 messages=messages,
             )
         messages.append({"role": "assistant", "content": response.content})
+        text = "".join(block.text for block in response.content if block.type == "text")
 
-        if response.stop_reason != "tool_use":
-            elapsed = time.perf_counter() - started
-            trace.print(f"\n[dim]{step} steps · {elapsed:.1f}s[/]")
-            return "".join(
-                block.text for block in response.content if block.type == "text"
-            )
+        if response.stop_reason == "tool_use":
+            results = []
+            for block in response.content:
+                if block.type != "tool_use":
+                    continue
+                output = run_tool(block.name, block.input)
+                show_tool_call(step, block.name, block.input, output)
+                results.append(
+                    {"type": "tool_result", "tool_use_id": block.id, "content": output}
+                )
+            messages.append({"role": "user", "content": results})
+            continue
 
-        results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-            output = run_tool(block.name, block.input)
-            show_tool_call(step, block.name, block.input, output)
-            results.append(
-                {"type": "tool_result", "tool_use_id": block.id, "content": output}
-            )
-        messages.append({"role": "user", "content": results})
+        complete, colour, message = STOP_REASONS.get(
+            response.stop_reason,
+            (False, "red", "✗ Stopped: unexpected stop reason"),
+        )
+        report_stop(colour, message, response.stop_reason, step, started)
+        return text, complete
 
-    return f"Stopped after {max_steps} steps without a final answer."
+    report_stop(
+        "red",
+        f"✗ Stopped: reached the {max_steps}-step limit before finishing",
+        "max_steps",
+        max_steps,
+        started,
+    )
+    return (
+        "The agent ran out of steps before reaching an answer. Try a narrower question.",
+        False,
+    )
+
+
+def report_stop(
+    colour: str, message: str, reason: str, steps: int, started: float
+) -> None:
+    """Print why the agent stopped, in the trace footer."""
+    elapsed = time.perf_counter() - started
+    trace.print(f"\n[bold {colour}]{message}[/] [dim](stop reason: {reason})[/]")
+    trace.print(f"[dim]{steps} steps · {elapsed:.1f}s[/]")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        sys.exit('Usage: python3 agent/analyst.py "your question"')
-    question = sys.argv[1]
+    VERBOSE = "--verbose" in sys.argv
+    args = [arg for arg in sys.argv[1:] if arg != "--verbose"]
+    if len(args) != 1:
+        sys.exit('Usage: python3 agent/analyst.py [--verbose] "your question"')
+    question = args[0]
     console.print(
         Panel(
             escape(question), title="[bold]NBA Clutch Analyst[/]", border_style="cyan"
         )
     )
-    answer = ask(question)
+    answer, complete = ask(question)
     console.print(
         Panel(
             Markdown(answer, code_theme="monokai"),
-            title="[bold]Answer[/]",
-            border_style="green",
+            title=(
+                "[bold]Answer[/]" if complete else "[bold yellow]Answer (incomplete)[/]"
+            ),
+            border_style="green" if complete else "yellow",
             padding=(1, 2),
         )
     )
+    sys.exit(0 if complete else 1)

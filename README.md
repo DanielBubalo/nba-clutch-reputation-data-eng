@@ -239,10 +239,11 @@ python3 agent/analyst.py --verbose "Which Star player-seasons had the biggest cl
 `--verbose` also prints each tool's full output, which is useful when checking whether a wrong answer came from missing information or a misreading.
 
 **Guardrails**
-- DuckDB is opened with `read_only=True`, so writes are refused by the database itself, not just discouraged by the prompt.
-- The agent only sees the analysis models, never staging or raw tables.
-- The system prompt requires every number to come from a query result, and asks the agent to say so when the data can't answer.
-- Query results are capped at 50 rows, and the loop stops after 10 steps.
+- DuckDB is opened with `read_only=True` and `enable_external_access=false`, with the configuration locked, so queries can't write the database, read or write files, attach other databases, or load extensions.
+- Every query is parsed before it runs and rejected unless it's exactly one `SELECT` statement.
+- Queries time out after 30 seconds, results are capped at 50 rows, and the loop stops after 10 steps.
+- Every run reports why it stopped (`end_turn`, `max_tokens`, `refusal`, or the step limit). A truncated or stopped answer is labeled incomplete and the script exits with code 1.
+- The agent only sees the analysis models, never staging or raw tables, and the system prompt requires every number to come from a query result.
 
 > [!WARNING]
 > Don't run the agent while `main.py`, `load_shots.py`, or a dbt build is writing. DuckDB allows one writer at a time, and the read-only connection will fail with a lock error.
