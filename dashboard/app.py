@@ -10,7 +10,9 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
+from court import draw_court
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "nba_clutch.duckdb"
@@ -38,7 +40,7 @@ def load_player_seasons() -> pd.DataFrame:
     """Every qualifying player-season. Small enough (about 5,000 rows) to load once and filter in memory."""
     with duckdb.connect(str(DB_PATH), read_only=True) as con:
         return con.execute("""
-            SELECT player_name, season, group_tier, team_abv,
+            SELECT player_id, player_name, season, group_tier, team_abv,
                    ts_season, ts_clutch, ts_delta, usg_delta,
                    fga_clutch, games_played_clutch
             FROM player_clutch_performance
@@ -105,7 +107,9 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-overview_tab, leaderboard_tab = st.tabs(["Overview", "Leaderboards"])
+overview_tab, leaderboard_tab, player_tab, shots_tab = st.tabs(
+    ["Overview", "Leaderboards", "Player explorer", "Shot chart"]
+)
 
 
 # -------------------------------------------------------------- overview
@@ -270,3 +274,238 @@ with leaderboard_tab:
         "Player-seasons with few clutch shots spread far above and below zero; the spread narrows "
         "as attempts grow. The dashed line is your minimum: points left of it are excluded above."
     )
+
+# ------------------------------------------------------- player explorer
+
+with player_tab:
+    players = (
+        seasons_df.groupby(["player_id", "player_name"])
+        .size()
+        .reset_index(name="seasons")
+        .sort_values("player_name")
+    )
+    labels = {
+        row.player_id: f"{row.player_name} ({row.seasons} season{'s' if row.seasons != 1 else ''})"
+        for row in players.itertuples()
+    }
+    default_ids = players.loc[players["player_name"] == "LeBron James", "player_id"]
+    default_index = (
+        int(players["player_id"].tolist().index(default_ids.iloc[0]))
+        if len(default_ids)
+        else 0
+    )
+    player_id = st.selectbox(
+        "Player",
+        players["player_id"].tolist(),
+        index=default_index,
+        format_func=labels.get,
+        help="Only qualifying seasons appear: 15+ clutch games and 100+ season field goal attempts.",
+    )
+
+    career = seasons_df[seasons_df["player_id"] == player_id].sort_values("season")
+    name = career["player_name"].iloc[0]
+
+    stat_1, stat_2, stat_3, stat_4 = st.columns(4)
+    stat_1.metric("Qualifying seasons", len(career))
+    stat_2.metric("Average ts_delta", f"{career['ts_delta'].mean():+.3f}")
+    stat_3.metric("Total clutch FGA", f"{int(career['fga_clutch'].sum()):,}")
+    star_seasons = career[career["group_tier"] != "Role"]
+    stat_4.metric(
+        "First Star/Olympic season",
+        star_seasons["season"].iloc[0] if len(star_seasons) else "None",
+    )
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=career["season"],
+            y=career["ts_season"],
+            name="Full season",
+            mode="lines+markers",
+            line=dict(color="#8c9bab", width=2),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=career["season"],
+            y=career["ts_clutch"],
+            name="Clutch",
+            mode="lines+markers",
+            line=dict(color="#4a4a4a", width=2, dash="dot"),
+            marker=dict(
+                size=11,
+                color=career["group_tier"].map(TIER_COLOURS),
+                line=dict(color="white", width=1),
+            ),
+            customdata=career[["group_tier", "fga_clutch", "ts_delta"]],
+            hovertemplate=(
+                "%{x}<br>Clutch TS%: %{y:.3f}<br>Tier: %{customdata[0]}"
+                "<br>Clutch FGA: %{customdata[1]}<br>Change: %{customdata[2]:+.3f}<extra></extra>"
+            ),
+        )
+    )
+    fig.update_layout(
+        title=f"{name}: true shooting, full season vs. clutch",
+        yaxis_title="True shooting %",
+        xaxis_title="Season",
+        hovermode="x unified",
+    )
+    st.plotly_chart(fig, width="stretch")
+    st.caption(
+        "Clutch markers are coloured by that season's tier: grey = Role, gold = Olympic Gold Medalist, "
+        "red = Star. Tiers only count awards won before the season, so you can see when a player's "
+        "reputation starts."
+    )
+
+    st.dataframe(
+        career[
+            [
+                "season",
+                "team_abv",
+                "group_tier",
+                "ts_season",
+                "ts_clutch",
+                "ts_delta",
+                "usg_delta",
+                "fga_clutch",
+            ]
+        ],
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "season": "Season",
+            "team_abv": "Team",
+            "group_tier": "Tier",
+            "ts_season": st.column_config.NumberColumn("Season TS%", format="%.3f"),
+            "ts_clutch": st.column_config.NumberColumn("Clutch TS%", format="%.3f"),
+            "ts_delta": st.column_config.NumberColumn("Change", format="%+.3f"),
+            "usg_delta": st.column_config.NumberColumn("Usage change", format="%+.3f"),
+            "fga_clutch": st.column_config.NumberColumn("Clutch FGA", format="%d"),
+        },
+    )
+
+
+# ------------------------------------------------------------ shot chart
+
+MAX_SCATTER_POINTS = 5_000
+BIN_SIZE = 25  # tenths of a foot, so 2.5 ft squares
+MIN_BIN_ATTEMPTS = 20
+
+
+@st.cache_data(show_spinner="Loading clutch shots…")
+def load_shots() -> pd.DataFrame:
+    """Every clutch shot with a recorded location (a handful have none)."""
+    with duckdb.connect(str(DB_PATH), read_only=True) as con:
+        return con.execute("""
+            SELECT player_id, player_name, season, group_tier, loc_x, loc_y, shot_made_flag
+            FROM shots_with_opponent
+            WHERE loc_x IS NOT NULL AND loc_y IS NOT NULL
+            """).df()
+
+
+def accuracy_grid(shots: pd.DataFrame) -> pd.DataFrame:
+    """Field goal % in 2.5 ft squares, keeping only squares with enough attempts to mean something."""
+    binned = shots.assign(
+        x_bin=(shots["loc_x"] // BIN_SIZE) * BIN_SIZE + BIN_SIZE / 2,
+        y_bin=(shots["loc_y"] // BIN_SIZE) * BIN_SIZE + BIN_SIZE / 2,
+    )
+    grid = (
+        binned.groupby(["x_bin", "y_bin"])["shot_made_flag"]
+        .agg(attempts="size", fg_pct="mean")
+        .reset_index()
+    )
+    return grid[grid["attempts"] >= MIN_BIN_ATTEMPTS]
+
+
+with shots_tab:
+    shots_df = load_shots()
+    shot_seasons = sorted(shots_df["season"].unique())
+
+    shot_filter_1, shot_filter_2, shot_filter_3 = st.columns(3)
+    with shot_filter_1:
+        shot_tiers = st.multiselect(
+            "Tiers", TIER_ORDER, default=TIER_ORDER, key="shot_tiers"
+        )
+        view = st.radio(
+            "View", ["Accuracy heatmap", "Makes and misses"], horizontal=True
+        )
+    with shot_filter_2:
+        shot_first, shot_last = st.select_slider(
+            "Seasons",
+            options=shot_seasons,
+            value=(shot_seasons[0], shot_seasons[-1]),
+            key="shot_seasons",
+        )
+    with shot_filter_3:
+        shooter_options = ["All players"] + sorted(shots_df["player_name"].unique())
+        shooter = st.selectbox("Player", shooter_options, key="shooter")
+
+    selected = shots_df[
+        shots_df["group_tier"].isin(shot_tiers)
+        & shots_df["season"].between(shot_first, shot_last)
+    ]
+    if shooter != "All players":
+        selected = selected[selected["player_name"] == shooter]
+
+    if selected.empty:
+        st.warning("No shots match these filters.")
+    else:
+        shot_1, shot_2, shot_3 = st.columns(3)
+        shot_1.metric("Clutch shots", f"{len(selected):,}")
+        shot_2.metric("Made", f"{int(selected['shot_made_flag'].sum()):,}")
+        shot_3.metric("Field goal %", f"{selected['shot_made_flag'].mean():.1%}")
+
+        if view == "Accuracy heatmap":
+            grid = accuracy_grid(selected)
+            fg_matrix = grid.pivot(index="y_bin", columns="x_bin", values="fg_pct")
+            attempts_matrix = grid.pivot(
+                index="y_bin", columns="x_bin", values="attempts"
+            )
+            fig = go.Figure(
+                go.Heatmap(
+                    x=fg_matrix.columns,
+                    y=fg_matrix.index,
+                    z=fg_matrix.values,
+                    customdata=attempts_matrix.values,
+                    colorscale="RdYlGn",
+                    zmin=0.25,
+                    zmax=0.65,
+                    colorbar=dict(title="FG%", tickformat=".0%"),
+                    hovertemplate="FG%: %{z:.1%}<br>Attempts: %{customdata}<extra></extra>",
+                    xgap=1,
+                    ygap=1,
+                )
+            )
+            fig.update_layout(title="Clutch field goal % by location")
+            st.plotly_chart(draw_court(fig), width="stretch")
+            st.caption(
+                f"Each square is 2.5 × 2.5 ft. Squares with fewer than {MIN_BIN_ATTEMPTS} attempts are "
+                "hidden, for the same reason as the leaderboard's shot minimum: small samples are noise."
+            )
+        else:
+            sample = selected
+            if len(selected) > MAX_SCATTER_POINTS:
+                sample = selected.sample(MAX_SCATTER_POINTS, random_state=0)
+                st.caption(
+                    f"Showing a random {MAX_SCATTER_POINTS:,} of {len(selected):,} shots so the chart stays fast. "
+                    "Pick a player or narrow the seasons to see every shot."
+                )
+            fig = go.Figure()
+            for made, label, colour, symbol in [
+                (0, "Miss", "#e4572e", "x"),
+                (1, "Make", "#2e9e5b", "circle"),
+            ]:
+                part = sample[sample["shot_made_flag"] == made]
+                fig.add_trace(
+                    go.Scatter(
+                        x=part["loc_x"],
+                        y=part["loc_y"],
+                        mode="markers",
+                        name=label,
+                        marker=dict(color=colour, symbol=symbol, size=6, opacity=0.6),
+                        customdata=part[["player_name", "season"]],
+                        hovertemplate="%{customdata[0]}<br>%{customdata[1]}<extra></extra>",
+                    )
+                )
+            fig.update_layout(title="Clutch makes and misses")
+            st.plotly_chart(draw_court(fig), width="stretch")
