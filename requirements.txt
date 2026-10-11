@@ -8,3 +8,5 @@ dbt-duckdb==1.11.0
 dbt-core-experimental-parser==2.0.0b2
 anthropic==1.11.0
 rich==15.0.0
+streamlit==1.65.0
+plotly==7.1.0
