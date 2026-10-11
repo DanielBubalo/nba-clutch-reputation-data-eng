@@ -6,6 +6,7 @@
 ![Airflow](https://img.shields.io/badge/Airflow-3.3-017CEE?logo=apacheairflow&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 ![Claude](https://img.shields.io/badge/Agent-Claude-D97757?logo=anthropic&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
 
 > [!IMPORTANT]
 > **Stars decline the most in the clutch.** Across 5,086 player-seasons (2004-05 to 2025-26), every reputation tier shoots worse in the clutch than over the full season, and Stars drop the most: −1.5 points of true shooting vs. −0.65 for role players. Reputation gets them the ball, but it doesn't make the shots go in.
@@ -24,6 +25,7 @@ flowchart LR
     SHOTS --> DB
     AN --> AGENT[Analyst agent<br/>read-only SQL]
     subgraph Airflow
+    AN --> DASH[Streamlit dashboard<br/>read-only]
         EL
         STG
         AN
@@ -81,6 +83,9 @@ data_eng_project/
         analyst.py       — analyst agent: answers questions with read-only SQL (see Analyst Agent)
         eval_cases.py    — eval questions and the checks each answer must pass
         run_evals.py     — runs the agent on every eval case and scores the answers
+    dashboard/
+        app.py           — Streamlit dashboard: overview, leaderboards, player explorer, shot chart
+        court.py         — draws an NBA half-court in nba_api's shot coordinates
     airflow/
         Dockerfile                    — custom Airflow image with project dependencies
         requirements-dbt.txt          — dbt packages, installed into a separate venv in the image
@@ -88,7 +93,9 @@ data_eng_project/
         .env.example                  — template for required secrets (copy to .env)
         docker-compose.yaml
     docs/
-        agent-demo.png   — screenshot of the analyst agent
+        agent-demo.png            — screenshot of the analyst agent
+        dashboard-overview.png    — screenshot of the dashboard's overview tab
+        dashboard-shot-chart.png  — screenshot of the clutch shot heatmap
     scratch/
         nba_data_load.ipynb              — ad-hoc notebook for testing snippets
         findings_ts_delta_by_tier.sql    — query behind the Findings section below
@@ -165,7 +172,7 @@ Model and column descriptions in `schema.yml` state each model's grain and the d
 
 All models build as views by default (set in `dbt_project.yml`). The one exception is `player_clutch_performance`, materialized as a table via a per-model `{{ config(materialized='table') }}` override, because it's referenced by `ref()` in five other models — `home_vs_road`, `matchup_analysis`, `player_clutch_playmaking`, `shots_with_opponent`, and `star_player_performance` — each of which would otherwise re-run its full join (season stats + clutch stats + `player_tier` + player names) independently on every build. Materializing it once means that join runs a single time and gets read, not recomputed, by each downstream model.
 
-Staging models also have multiple consumers, but they're simple column-renaming selects, cheap enough to stay views. No other model combines an expensive join with multiple downstream consumers, so the rest stay views until there's an actual case for change — likely once the planned dashboard starts querying them directly and repeatedly.
+Staging models also have multiple consumers, but they're simple column-renaming selects, cheap enough to stay views. No other model combines an expensive join with multiple downstream consumers, so the rest stay views. The dashboard didn't change that: it reads each model once per session and caches the result, so views are queried rarely enough that materializing them wouldn't help.
 
 </details>
 
@@ -223,6 +230,27 @@ the ranking became consistent across mean and median.
 
 > [!NOTE]
 > **Caveats:** clutch samples are smaller than season samples by construction (15+ clutch games vs. 100+ season field-goal attempts), so individual player-season values are noisy — part of why Role's spread (0.135) is much wider than Star's (0.088). Player-seasons also aren't independent, since the same player appears in many seasons, so the standard errors above are likely optimistic.
+
+## Dashboard
+
+![Dashboard overview](docs/dashboard-overview.png)
+
+`dashboard/app.py` is a Streamlit app that turns the findings into something you can explore. Run it from the project root once the pipeline has built the database:
+
+```bash
+streamlit run dashboard/app.py
+```
+
+It opens at `localhost:8501` with four tabs:
+
+- **Overview:** the headline finding computed live, mean `ts_delta` by tier with 95% intervals, and the Findings table.
+- **Leaderboards:** the biggest clutch declines and improvements, filterable by tier and season, with a minimum clutch shot attempts slider. A scatter of `ts_delta` against clutch attempts shows why the minimum matters: small samples spread far from zero, and the spread narrows as attempts grow.
+- **Player explorer:** one player's full-season and clutch true shooting across their career, with each season colored by tier, so you can see the season a player's reputation starts.
+- **Shot chart:** all 159,315 located clutch shots on a half-court, as an FG% heatmap (2.5 ft squares, hiding squares with fewer than 20 attempts) or as individual makes and misses.
+
+![Clutch shot heatmap](docs/dashboard-shot-chart.png)
+
+The app reads DuckDB with a read-only connection and caches each query, so the database is read once per session and every filter runs in memory. Player-seasons (about 5,000 rows) and shots (about 160,000) are small enough to load whole; at a larger scale, the filtering would move into SQL. The **Reload data** button in the sidebar clears the cache after a new pipeline run. Like the agent, the dashboard can't open the database while the pipeline or a dbt build is writing to it, and it shows a message instead of crashing.
 
 ## Analyst Agent
 
