@@ -8,6 +8,7 @@ import json
 import sys
 import threading
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import anthropic
@@ -198,6 +199,20 @@ def show_tool_call(step: int, name: str, tool_input: dict, output: str) -> None:
 
 # ------------------------------------------------------------- the loop
 
+
+@dataclass
+class AgentResult:
+    """Everything about one run: the answer, how it ended, and the work behind it."""
+
+    answer: str
+    complete: bool
+    stop_reason: str
+    steps: int
+    seconds: float
+    queries: list[str] = field(default_factory=list)
+    failed_queries: int = 0
+
+
 # How each way of finishing is reported: (complete?, colour, message shown to you)
 STOP_REASONS = {
     "end_turn": (True, "green", "✓ Complete: the agent finished its answer"),
@@ -210,11 +225,13 @@ STOP_REASONS = {
 }
 
 
-def ask(question: str, max_steps: int = MAX_STEPS) -> tuple[str, bool]:
-    """Run the agent. Returns (answer text, whether the answer is complete)."""
+def ask(question: str, max_steps: int = MAX_STEPS) -> AgentResult:
+    """Run the agent on one question and return the answer plus a record of the run."""
     client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
     messages = [{"role": "user", "content": question}]
     started = time.perf_counter()
+    queries: list[str] = []
+    failed_queries = 0
 
     for step in range(1, max_steps + 1):
         with trace.status("[dim]Thinking…[/]", spinner="dots"):
@@ -234,6 +251,9 @@ def ask(question: str, max_steps: int = MAX_STEPS) -> tuple[str, bool]:
                 if block.type != "tool_use":
                     continue
                 output = run_tool(block.name, block.input)
+                if block.name == "run_sql":
+                    queries.append(block.input.get("query", ""))
+                    failed_queries += output.startswith("Query failed")
                 show_tool_call(step, block.name, block.input, output)
                 results.append(
                     {"type": "tool_result", "tool_use_id": block.id, "content": output}
@@ -245,29 +265,37 @@ def ask(question: str, max_steps: int = MAX_STEPS) -> tuple[str, bool]:
             response.stop_reason,
             (False, "red", "✗ Stopped: unexpected stop reason"),
         )
-        report_stop(colour, message, response.stop_reason, step, started)
-        return text, complete
+        seconds = report_stop(colour, message, response.stop_reason, step, started)
+        return AgentResult(
+            text, complete, response.stop_reason, step, seconds, queries, failed_queries
+        )
 
-    report_stop(
+    seconds = report_stop(
         "red",
         f"✗ Stopped: reached the {max_steps}-step limit before finishing",
         "max_steps",
         max_steps,
         started,
     )
-    return (
+    return AgentResult(
         "The agent ran out of steps before reaching an answer. Try a narrower question.",
         False,
+        "max_steps",
+        max_steps,
+        seconds,
+        queries,
+        failed_queries,
     )
 
 
 def report_stop(
     colour: str, message: str, reason: str, steps: int, started: float
-) -> None:
-    """Print why the agent stopped, in the trace footer."""
+) -> float:
+    """Print why the agent stopped, in the trace footer. Returns the elapsed seconds."""
     elapsed = time.perf_counter() - started
     trace.print(f"\n[bold {colour}]{message}[/] [dim](stop reason: {reason})[/]")
     trace.print(f"[dim]{steps} steps · {elapsed:.1f}s[/]")
+    return elapsed
 
 
 if __name__ == "__main__":
@@ -281,15 +309,17 @@ if __name__ == "__main__":
             escape(question), title="[bold]NBA Clutch Analyst[/]", border_style="cyan"
         )
     )
-    answer, complete = ask(question)
+    result = ask(question)
     console.print(
         Panel(
-            Markdown(answer, code_theme="monokai"),
+            Markdown(result.answer, code_theme="monokai"),
             title=(
-                "[bold]Answer[/]" if complete else "[bold yellow]Answer (incomplete)[/]"
+                "[bold]Answer[/]"
+                if result.complete
+                else "[bold yellow]Answer (incomplete)[/]"
             ),
-            border_style="green" if complete else "yellow",
+            border_style="green" if result.complete else "yellow",
             padding=(1, 2),
         )
     )
-    sys.exit(0 if complete else 1)
+    sys.exit(0 if result.complete else 1)
