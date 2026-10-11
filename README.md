@@ -60,6 +60,8 @@ All data comes from the unofficial `nba_api` Python package, covering Regular Se
 
 ```
 data_eng_project/
+    .github/workflows/
+        dbt-ci.yml       — GitHub Actions: runs dbt tests on every pull request
     pipeline/
         extract/         — one module per data domain (stats, matchups, awards, shots, static)
             api.py       — shared retry-with-backoff and failure-manifest helpers
@@ -77,6 +79,8 @@ data_eng_project/
         tests/           — singular data tests (e.g. shot counts vs. official clutch FGA)
     agent/
         analyst.py       — analyst agent: answers questions with read-only SQL (see Analyst Agent)
+        eval_cases.py    — eval questions and the checks each answer must pass
+        run_evals.py     — runs the agent on every eval case and scores the answers
     airflow/
         Dockerfile                    — custom Airflow image with project dependencies
         requirements-dbt.txt          — dbt packages, installed into a separate venv in the image
@@ -165,6 +169,12 @@ Staging models also have multiple consumers, but they're simple column-renaming 
 
 </details>
 
+## Continuous Integration
+
+Every pull request into `main` runs `.github/workflows/dbt-ci.yml` on a fresh GitHub runner. It installs the pinned `requirements.txt`, creates an empty DuckDB database from `nba_schema.sql`, runs `dbt run --empty` to build every model with zero rows, then runs `dbt test`.
+
+The real database isn't in the repo and takes about 3.5 hours to build from the API, so CI checks the code rather than the data: every model's SQL has to run against the actual raw schema, every `ref` has to resolve, and the `player_tier` unit tests run for real on their mocked data. Data tests like `unique` and `not_null` pass trivially on empty tables, so data quality is still checked by the full local build. `equal_rowcount` is skipped in CI because the dbt_utils macro returns NULL instead of 0 on empty tables.
+
 ## Findings: Does Clutch Reputation Match Clutch Results?
 
 Using `player_clutch_performance` (see `group_tier` and `ts_delta` definitions
@@ -242,11 +252,21 @@ python3 agent/analyst.py --verbose "Which Star player-seasons had the biggest cl
 - DuckDB is opened with `read_only=True` and `enable_external_access=false`, with the configuration locked, so queries can't write the database, read or write files, attach other databases, or load extensions.
 - Every query is parsed before it runs and rejected unless it's exactly one `SELECT` statement.
 - Queries time out after 30 seconds, results are capped at 50 rows, and the loop stops after 10 steps.
-- Every run reports why it stopped (`end_turn`, `max_tokens`, `refusal`, or the step limit). A truncated or stopped answer is labeled incomplete and the script exits with code 1.
+- Every run reports why it stopped (`end_turn`, `max_tokens`, `refusal`, or the step limit). A truncated or stopped answer is labeled incomplete, and the script exits with code 1.
 - The agent only sees the analysis models, never staging or raw tables, and the system prompt requires every number to come from a query result.
 
 > [!WARNING]
 > Don't run the agent while `main.py`, `load_shots.py`, or a dbt build is writing. DuckDB allows one writer at a time, and the read-only connection will fail with a lock error.
+
+**Evals**
+
+`python3 agent/run_evals.py` runs the agent on a fixed set of questions in `agent/eval_cases.py` and scores each answer. Run one case with `python3 agent/run_evals.py tier_counts`.
+
+- **Number checks:** the answer must contain the right values, such as tier counts and mean `ts_delta`, within a rounding tolerance.
+- **Name checks:** the answer must name the right players, which tests sort direction.
+- **Judge checks:** open-ended questions ("Who is the best defender?") are graded by a second Claude call against a written description of a good answer.
+
+Expected answers aren't hardcoded: each case's `truth_sql` computes them from the database at eval time, so the evals stay correct when the data is rebuilt. The checker was verified by deliberately corrupting an expected answer and confirming the case failed. Run the full set after changing the prompt, the model descriptions, or the model.
 
 The agent's answers are only as good as the descriptions in `dbt/models/schema.yml`. If it misreads a column or a model's grain, fix the description, rerun `dbt parse`, and ask again.
 
