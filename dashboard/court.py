@@ -9,7 +9,7 @@ import math
 
 import plotly.graph_objects as go
 
-LINE = dict(color="rgba(128, 128, 128, 0.8)", width=1.5)
+LINE = dict(color="rgba(232, 238, 244, 0.35)", width=1.5)
 
 X_RANGE = (-250, 250)
 Y_RANGE = (-47.5, 422.5)

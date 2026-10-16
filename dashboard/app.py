@@ -5,6 +5,7 @@ Run from the project root:
 """
 
 import math
+from datetime import datetime
 from pathlib import Path
 
 import duckdb
@@ -12,24 +13,32 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+
 from court import draw_court
+from style import (
+    CSS,
+    HOT_COLD,
+    LINE,
+    MUTED,
+    PLOTLY_CONFIG,
+    TEXT,
+    TIER_COLOURS,
+    TIER_ORDER,
+    TIER_PLURALS,
+    scoreboard_html,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "nba_clutch.duckdb"
+REPO_URL = "https://github.com/DanielBubalo/nba-clutch-reputation-data-eng"
 
-TIER_ORDER = ["Role", "Olympic Gold Medalist", "Star"]
-TIER_PLURALS = {
-    "Role": "Role players",
-    "Olympic Gold Medalist": "Olympic Gold Medalists",
-    "Star": "Stars",
-}
-TIER_COLOURS = {
-    "Role": "#8c9bab",
-    "Olympic Gold Medalist": "#e0b14a",
-    "Star": "#e4572e",
-}
+MIN_TIER_SEASON = 10  # a tier needs this many player-seasons in a season to get a point on the trend chart
+MAX_SCATTER_POINTS = 5_000
+BIN_SIZE = 25  # tenths of a foot, so 2.5 ft squares
+MIN_BIN_ATTEMPTS = 20
 
 st.set_page_config(page_title="NBA Clutch Reputation", page_icon="🏀", layout="wide")
+st.markdown(CSS, unsafe_allow_html=True)
 
 
 # ------------------------------------------------------------------ data
@@ -47,10 +56,15 @@ def load_player_seasons() -> pd.DataFrame:
             """).df()
 
 
-@st.cache_data(show_spinner=False)
-def count_shots() -> int:
+@st.cache_data(show_spinner="Loading clutch shots…")
+def load_shots() -> pd.DataFrame:
+    """Every clutch shot with a recorded location (a handful have none)."""
     with duckdb.connect(str(DB_PATH), read_only=True) as con:
-        return con.execute("SELECT COUNT(*) FROM shots_with_opponent").fetchone()[0]
+        return con.execute("""
+            SELECT player_id, player_name, season, group_tier, loc_x, loc_y, shot_made_flag
+            FROM shots_with_opponent
+            WHERE loc_x IS NOT NULL AND loc_y IS NOT NULL
+            """).df()
 
 
 def tier_summary(df: pd.DataFrame) -> pd.DataFrame:
@@ -72,7 +86,19 @@ def tier_summary(df: pd.DataFrame) -> pd.DataFrame:
     return summary
 
 
-# ---------------------------------------------------------------- header
+def accuracy_grid(shots: pd.DataFrame) -> pd.DataFrame:
+    """Field goal % in 2.5 ft squares, keeping only squares with enough attempts to mean something."""
+    binned = shots.assign(
+        x_bin=(shots["loc_x"] // BIN_SIZE) * BIN_SIZE + BIN_SIZE / 2,
+        y_bin=(shots["loc_y"] // BIN_SIZE) * BIN_SIZE + BIN_SIZE / 2,
+    )
+    grid = (
+        binned.groupby(["x_bin", "y_bin"])["shot_made_flag"]
+        .agg(attempts="size", fg_pct="mean")
+        .reset_index()
+    )
+    return grid[grid["attempts"] >= MIN_BIN_ATTEMPTS]
+
 
 if not DB_PATH.exists():
     st.error(
@@ -90,22 +116,108 @@ except duckdb.IOException:
     )
     st.stop()
 
-st.title("🏀 Does clutch reputation match clutch results?")
-st.caption(
-    "Clutch = last 5 minutes of the 4th quarter or overtime, score within 5 points. "
-    "ts_delta = clutch true shooting minus season true shooting, so negative means worse in the clutch."
-)
+ALL_SEASONS = sorted(seasons_df["season"].unique())
+FILTER_DEFAULTS = {
+    "f_seasons": (ALL_SEASONS[0], ALL_SEASONS[-1]),
+    "f_tiers": TIER_ORDER,
+    "f_min_fga": 0,
+}
+
+
+# --------------------------------------------------------------- sidebar
+# Filters here apply to every tab, so the whole dashboard always describes the same data.
 
 with st.sidebar:
-    st.header("About the data")
-    st.write(
-        f"{len(seasons_df):,} qualifying player-seasons, "
-        f"{seasons_df['season'].min()} to {seasons_df['season'].max()}."
+    st.markdown(
+        '<div class="brand">NBA Clutch Reputation</div>'
+        '<div class="brand-sub">Do Stars really perform better in the clutch, '
+        "or does reputation outpace results?</div>",
+        unsafe_allow_html=True,
     )
-    st.write("Built from `player_clutch_performance` in DuckDB, read-only.")
-    if st.button("Reload data", help="Clear the cache after a new pipeline run."):
+
+    st.subheader("Filters")
+    first_season, last_season = st.select_slider(
+        "Seasons",
+        options=ALL_SEASONS,
+        value=FILTER_DEFAULTS["f_seasons"],
+        key="f_seasons",
+    )
+    tiers = st.multiselect(
+        "Tiers", TIER_ORDER, default=FILTER_DEFAULTS["f_tiers"], key="f_tiers"
+    )
+    min_fga = st.slider(
+        "Minimum clutch shot attempts",
+        min_value=0,
+        max_value=100,
+        value=FILTER_DEFAULTS["f_min_fga"],
+        key="f_min_fga",
+        help="Player-seasons qualify with 15+ clutch games, but some take very few clutch shots. "
+        "Raise this to see whether the findings hold without small samples.",
+    )
+
+    in_scope = seasons_df[
+        seasons_df["group_tier"].isin(tiers)
+        & seasons_df["season"].between(first_season, last_season)
+    ]
+    filtered = in_scope[in_scope["fga_clutch"] >= min_fga]
+
+    st.progress(
+        len(filtered) / len(seasons_df),
+        text=f"{len(filtered):,} of {len(seasons_df):,} player-seasons",
+    )
+
+    reset_col, reload_col = st.columns(2)
+    if reset_col.button("Reset filters", width="stretch"):
+        for key in FILTER_DEFAULTS:
+            st.session_state.pop(key, None)
+        st.rerun()
+    if reload_col.button(
+        "Reload data", width="stretch", help="Clear the cache after a new pipeline run."
+    ):
         st.cache_data.clear()
         st.rerun()
+
+    st.download_button(
+        "Download filtered data (CSV)",
+        filtered.to_csv(index=False).encode("utf-8"),
+        file_name="clutch_player_seasons.csv",
+        mime="text/csv",
+        width="stretch",
+    )
+
+    with st.expander("How to read this"):
+        st.markdown(
+            "**Clutch:** the last 5 minutes of the 4th quarter or overtime, with the score within 5 points "
+            "(the NBA's official definition).\n\n"
+            "**True shooting (TS%):** scoring efficiency that counts threes and free throws, not just "
+            "field goals.\n\n"
+            "**ts_delta:** clutch TS% minus full-season TS%. Negative means the player shot worse in the "
+            "clutch. Shown in percentage points on the scoreboard.\n\n"
+            "**Usage:** the share of a team's possessions a player finishes while on the floor.\n\n"
+            "**Tiers:** Star means the player won a star-level NBA award before that season. Olympic "
+            "Gold Medalist means a star-level NBA award plus an Olympic gold. Everyone else is Role. "
+            "Awards only count from the season after they're won.\n\n"
+            "**Qualifying player-season:** at least 15 clutch games and more than 100 season field goal "
+            "attempts."
+        )
+
+    built = datetime.fromtimestamp(DB_PATH.stat().st_mtime)
+    st.caption(
+        f"Data: nba_api, regular seasons {ALL_SEASONS[0]} to {ALL_SEASONS[-1]}. "
+        f"Database last built {built:%b %d, %Y at %H:%M}. "
+        f"[Source code and method]({REPO_URL})"
+    )
+
+
+# ---------------------------------------------------------------- header
+
+st.title("🏀 Does clutch reputation match clutch results?")
+
+if filtered.empty:
+    st.warning(
+        "No player-seasons match the sidebar filters. Widen them, or press Reset filters."
+    )
+    st.stop()
 
 overview_tab, leaderboard_tab, player_tab, shots_tab = st.tabs(
     ["Overview", "Leaderboards", "Player explorer", "Shot chart"]
@@ -115,28 +227,17 @@ overview_tab, leaderboard_tab, player_tab, shots_tab = st.tabs(
 # -------------------------------------------------------------- overview
 
 with overview_tab:
-    summary = tier_summary(seasons_df)
+    summary = tier_summary(filtered)
+    st.markdown(scoreboard_html(summary), unsafe_allow_html=True)
 
-    kpi_1, kpi_2, kpi_3, kpi_4 = st.columns(4)
-    kpi_1.metric("Player-seasons", f"{len(seasons_df):,}")
-    kpi_2.metric("Unique players", f"{seasons_df['player_name'].nunique():,}")
-    kpi_3.metric("Clutch shots", f"{count_shots():,}")
-    kpi_4.metric("Seasons", f"{seasons_df['season'].nunique()}")
-
-    if not summary.empty:
-        worst = summary.loc[summary["mean_ts_delta"].idxmin()]
-        everyone_declines = (summary["mean_ts_delta"] < 0).all()
-        lead = (
-            "Every tier shoots worse in the clutch, and " if everyone_declines else ""
-        )
-        details = ", ".join(
-            f"{TIER_PLURALS[row.group_tier]} {row.mean_ts_delta:+.4f}"
-            for row in summary.itertuples()
-        )
-        st.info(
-            f"**{lead}{TIER_PLURALS[worst.group_tier]} drop the most.** "
-            f"Mean clutch change in true shooting: {details}."
-        )
+    worst = summary.loc[summary["mean_ts_delta"].idxmin()]
+    everyone_declines = (summary["mean_ts_delta"] < 0).all()
+    lead = "Every tier shoots worse in the clutch, and " if everyone_declines else ""
+    st.markdown(
+        f"**{lead}{TIER_PLURALS[worst.group_tier]} drop the most.** "
+        "Numbers are the mean change in true shooting from the full season to the clutch, "
+        "in percentage points."
+    )
 
     chart_col, table_col = st.columns([3, 2])
     with chart_col:
@@ -154,8 +255,9 @@ with overview_tab:
             title="Mean clutch change in true shooting, with 95% intervals",
         )
         fig.update_layout(showlegend=False)
-        fig.add_hline(y=0, line_color="gray", line_width=1)
-        st.plotly_chart(fig, width="stretch")
+        fig.update_traces(error_y=dict(color=MUTED, thickness=1.5))
+        fig.add_hline(y=0, line_color=LINE, line_width=1)
+        st.plotly_chart(fig, width="stretch", theme=None, config=PLOTLY_CONFIG)
         st.caption(
             "Error bars are ±1.96 standard errors. The same player appears in many seasons, "
             "so the real uncertainty is somewhat larger than shown."
@@ -182,47 +284,69 @@ with overview_tab:
                 ),
             },
         )
+        st.markdown(
+            f"**Usage tells the how.** {TIER_PLURALS[worst.group_tier]} change their usage by "
+            f"{worst.mean_usg_delta * 100:+.1f} points in the clutch. A positive number means they take "
+            "on more of the offense even as their efficiency falls."
+        )
+
+    st.subheader("Season by season")
+    by_season = (
+        filtered.groupby(["season", "group_tier"])["ts_delta"]
+        .agg(n="size", mean_ts_delta="mean")
+        .reset_index()
+    )
+    by_season = by_season[by_season["n"] >= MIN_TIER_SEASON]
+    trend = px.line(
+        by_season,
+        x="season",
+        y="mean_ts_delta",
+        color="group_tier",
+        color_discrete_map=TIER_COLOURS,
+        category_orders={"group_tier": TIER_ORDER, "season": ALL_SEASONS},
+        markers=True,
+        hover_data={"n": True},
+        labels={
+            "season": "Season",
+            "mean_ts_delta": "Mean ts_delta",
+            "group_tier": "Tier",
+            "n": "Player-seasons",
+        },
+        title="Mean clutch change in true shooting, by season",
+    )
+    trend.add_hline(y=0, line_color=LINE, line_width=1)
+    trend.update_layout(
+        legend=dict(
+            orientation="h", y=1.02, yanchor="bottom", x=1, xanchor="right", title=None
+        )
+    )
+    st.plotly_chart(trend, width="stretch", theme=None, config=PLOTLY_CONFIG)
+    st.caption(
+        f"A tier only gets a point in seasons where it has at least {MIN_TIER_SEASON} player-seasons, "
+        "so single seasons with tiny groups don't swing the line. Year-to-year jumps are mostly noise; "
+        "look for whether one tier sits below the others most seasons."
+    )
 
 
 # ---------------------------------------------------------- leaderboards
 
 with leaderboard_tab:
     st.subheader("Biggest clutch swings")
-
-    all_seasons = sorted(seasons_df["season"].unique())
-    filter_1, filter_2, filter_3 = st.columns(3)
-    with filter_1:
-        tiers = st.multiselect("Tiers", TIER_ORDER, default=TIER_ORDER)
-        direction = st.radio(
-            "Show", ["Biggest declines", "Biggest improvements"], horizontal=True
-        )
-    with filter_2:
-        first_season, last_season = st.select_slider(
-            "Seasons", options=all_seasons, value=(all_seasons[0], all_seasons[-1])
-        )
-        top_n = st.slider("Rows", min_value=5, max_value=50, value=15, step=5)
-    with filter_3:
-        min_fga = st.slider(
-            "Minimum clutch shot attempts",
-            min_value=0,
-            max_value=int(seasons_df["fga_clutch"].max()),
-            value=20,
-            help="The pipeline has no minimum on clutch shots, so some player-seasons rest on "
-            "very few attempts. Raise this to filter out small-sample noise.",
-        )
-
-    in_scope = seasons_df[
-        seasons_df["group_tier"].isin(tiers)
-        & seasons_df["season"].between(first_season, last_season)
-    ]
-    filtered = in_scope[in_scope["fga_clutch"] >= min_fga]
-    st.caption(
-        f"{len(filtered):,} player-seasons match. The shot minimum removed "
-        f"{len(in_scope) - len(filtered):,}."
+    option_1, option_2 = st.columns(2)
+    direction = option_1.radio(
+        "Show", ["Biggest declines", "Biggest improvements"], horizontal=True
     )
+    top_n = option_2.slider("Rows", min_value=5, max_value=50, value=15, step=5)
 
-    ascending = direction == "Biggest declines"
-    leaders = filtered.sort_values("ts_delta", ascending=ascending).head(top_n)
+    if min_fga < 20:
+        st.caption(
+            "Tip: raise the minimum clutch shot attempts in the sidebar. At low minimums the extremes "
+            "are dominated by player-seasons with only a handful of clutch shots."
+        )
+
+    leaders = filtered.sort_values(
+        "ts_delta", ascending=direction == "Biggest declines"
+    ).head(top_n)
     st.dataframe(
         leaders[
             [
@@ -267,17 +391,19 @@ with leaderboard_tab:
             "group_tier": "Tier",
         },
     )
-    scatter.add_vline(x=max(min_fga, 1), line_dash="dash", line_color="gray")
-    scatter.add_hline(y=0, line_color="gray", line_width=1)
-    st.plotly_chart(scatter, width="stretch")
+    scatter.add_vline(x=max(min_fga, 1), line_dash="dash", line_color=MUTED)
+    scatter.add_hline(y=0, line_color=LINE, line_width=1)
+    st.plotly_chart(scatter, width="stretch", theme=None, config=PLOTLY_CONFIG)
     st.caption(
         "Player-seasons with few clutch shots spread far above and below zero; the spread narrows "
-        "as attempts grow. The dashed line is your minimum: points left of it are excluded above."
+        "as attempts grow. The dashed line is the sidebar minimum: points left of it are excluded."
     )
+
 
 # ------------------------------------------------------- player explorer
 
 with player_tab:
+    st.caption("A player's whole career, so the sidebar filters don't apply here.")
     players = (
         seasons_df.groupby(["player_id", "player_name"])
         .size()
@@ -322,7 +448,7 @@ with player_tab:
             y=career["ts_season"],
             name="Full season",
             mode="lines+markers",
-            line=dict(color="#8c9bab", width=2),
+            line=dict(color=MUTED, width=2),
         )
     )
     fig.add_trace(
@@ -331,11 +457,11 @@ with player_tab:
             y=career["ts_clutch"],
             name="Clutch",
             mode="lines+markers",
-            line=dict(color="#4a4a4a", width=2, dash="dot"),
+            line=dict(color=TEXT, width=2, dash="dot"),
             marker=dict(
                 size=11,
                 color=career["group_tier"].map(TIER_COLOURS),
-                line=dict(color="white", width=1),
+                line=dict(color=TEXT, width=1),
             ),
             customdata=career[["group_tier", "fga_clutch", "ts_delta"]],
             hovertemplate=(
@@ -350,10 +476,10 @@ with player_tab:
         xaxis_title="Season",
         hovermode="x unified",
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", theme=None, config=PLOTLY_CONFIG)
     st.caption(
-        "Clutch markers are coloured by that season's tier: grey = Role, gold = Olympic Gold Medalist, "
-        "red = Star. Tiers only count awards won before the season, so you can see when a player's "
+        "Clutch markers are coloured by that season's tier: blue = Role, gold = Olympic Gold Medalist, "
+        "orange = Star. Tiers only count awards won before the season, so you can see when a player's "
         "reputation starts."
     )
 
@@ -387,63 +513,19 @@ with player_tab:
 
 # ------------------------------------------------------------ shot chart
 
-MAX_SCATTER_POINTS = 5_000
-BIN_SIZE = 25  # tenths of a foot, so 2.5 ft squares
-MIN_BIN_ATTEMPTS = 20
-
-
-@st.cache_data(show_spinner="Loading clutch shots…")
-def load_shots() -> pd.DataFrame:
-    """Every clutch shot with a recorded location (a handful have none)."""
-    with duckdb.connect(str(DB_PATH), read_only=True) as con:
-        return con.execute("""
-            SELECT player_id, player_name, season, group_tier, loc_x, loc_y, shot_made_flag
-            FROM shots_with_opponent
-            WHERE loc_x IS NOT NULL AND loc_y IS NOT NULL
-            """).df()
-
-
-def accuracy_grid(shots: pd.DataFrame) -> pd.DataFrame:
-    """Field goal % in 2.5 ft squares, keeping only squares with enough attempts to mean something."""
-    binned = shots.assign(
-        x_bin=(shots["loc_x"] // BIN_SIZE) * BIN_SIZE + BIN_SIZE / 2,
-        y_bin=(shots["loc_y"] // BIN_SIZE) * BIN_SIZE + BIN_SIZE / 2,
-    )
-    grid = (
-        binned.groupby(["x_bin", "y_bin"])["shot_made_flag"]
-        .agg(attempts="size", fg_pct="mean")
-        .reset_index()
-    )
-    return grid[grid["attempts"] >= MIN_BIN_ATTEMPTS]
-
-
 with shots_tab:
     shots_df = load_shots()
-    shot_seasons = sorted(shots_df["season"].unique())
+    # Keep only shots from the player-seasons the sidebar currently selects.
+    selected = shots_df.merge(
+        filtered[["player_id", "season"]].drop_duplicates(), on=["player_id", "season"]
+    )
 
-    shot_filter_1, shot_filter_2, shot_filter_3 = st.columns(3)
-    with shot_filter_1:
-        shot_tiers = st.multiselect(
-            "Tiers", TIER_ORDER, default=TIER_ORDER, key="shot_tiers"
-        )
-        view = st.radio(
-            "View", ["Accuracy heatmap", "Makes and misses"], horizontal=True
-        )
-    with shot_filter_2:
-        shot_first, shot_last = st.select_slider(
-            "Seasons",
-            options=shot_seasons,
-            value=(shot_seasons[0], shot_seasons[-1]),
-            key="shot_seasons",
-        )
-    with shot_filter_3:
-        shooter_options = ["All players"] + sorted(shots_df["player_name"].unique())
-        shooter = st.selectbox("Player", shooter_options, key="shooter")
-
-    selected = shots_df[
-        shots_df["group_tier"].isin(shot_tiers)
-        & shots_df["season"].between(shot_first, shot_last)
-    ]
+    option_1, option_2 = st.columns(2)
+    view = option_1.radio(
+        "View", ["Accuracy heatmap", "Makes and misses"], horizontal=True
+    )
+    shooter_options = ["All players"] + sorted(selected["player_name"].unique())
+    shooter = option_2.selectbox("Player", shooter_options, key="shooter")
     if shooter != "All players":
         selected = selected[selected["player_name"] == shooter]
 
@@ -467,7 +549,7 @@ with shots_tab:
                     y=fg_matrix.index,
                     z=fg_matrix.values,
                     customdata=attempts_matrix.values,
-                    colorscale="RdYlGn",
+                    colorscale=HOT_COLD,
                     zmin=0.25,
                     zmax=0.65,
                     colorbar=dict(title="FG%", tickformat=".0%"),
@@ -477,10 +559,12 @@ with shots_tab:
                 )
             )
             fig.update_layout(title="Clutch field goal % by location")
-            st.plotly_chart(draw_court(fig), width="stretch")
+            st.plotly_chart(
+                draw_court(fig), width="stretch", theme=None, config=PLOTLY_CONFIG
+            )
             st.caption(
                 f"Each square is 2.5 × 2.5 ft. Squares with fewer than {MIN_BIN_ATTEMPTS} attempts are "
-                "hidden, for the same reason as the leaderboard's shot minimum: small samples are noise."
+                "hidden, for the same reason as the shot minimum: small samples are noise."
             )
         else:
             sample = selected
@@ -492,8 +576,8 @@ with shots_tab:
                 )
             fig = go.Figure()
             for made, label, colour, symbol in [
-                (0, "Miss", "#e4572e", "x"),
-                (1, "Make", "#2e9e5b", "circle"),
+                (0, "Miss", "#2F6DB5", "x"),
+                (1, "Make", "#FF5A36", "circle"),
             ]:
                 part = sample[sample["shot_made_flag"] == made]
                 fig.add_trace(
@@ -508,4 +592,6 @@ with shots_tab:
                     )
                 )
             fig.update_layout(title="Clutch makes and misses")
-            st.plotly_chart(draw_court(fig), width="stretch")
+            st.plotly_chart(
+                draw_court(fig), width="stretch", theme=None, config=PLOTLY_CONFIG
+            )
