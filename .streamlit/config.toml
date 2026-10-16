@@ -1,0 +1,18 @@
+# Dashboard theme: an arena-at-night broadcast look.
+# Streamlit reads this file when you run `streamlit run` from the project root.
+
+[theme]
+base = "dark"
+primaryColor = "#FF5A36"            # basketball orange: sliders, buttons, selected tabs
+backgroundColor = "#0D1B2A"         # arena navy
+secondaryBackgroundColor = "#15273C"
+textColor = "#E8EEF4"
+font = "Barlow:https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&display=swap"
+headingFont = "Barlow Condensed:https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&display=swap"
+headingFontWeights = [700, 700, 600]
+baseRadius = "small"
+showWidgetBorder = true
+chartCategoricalColors = ["#6C8EBF", "#F5C451", "#FF5A36"]
+
+[theme.sidebar]
+backgroundColor = "#15273C"
