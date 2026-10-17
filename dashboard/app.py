@@ -15,11 +15,13 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from court import draw_court
+from hexbin import glowing_chart_html, hex_stats, hexbin_figure
 from style import (
     CSS,
     HOT_COLD,
     LINE,
     MUTED,
+    NAVY,
     PLOTLY_CONFIG,
     TEXT,
     TIER_COLOURS,
@@ -34,8 +36,6 @@ REPO_URL = "https://github.com/DanielBubalo/nba-clutch-reputation-data-eng"
 
 MIN_TIER_SEASON = 10  # a tier needs this many player-seasons in a season to get a point on the trend chart
 MAX_SCATTER_POINTS = 5_000
-BIN_SIZE = 25  # tenths of a foot, so 2.5 ft squares
-MIN_BIN_ATTEMPTS = 20
 
 st.set_page_config(page_title="NBA Clutch Reputation", page_icon="🏀", layout="wide")
 st.markdown(CSS, unsafe_allow_html=True)
@@ -84,20 +84,6 @@ def tier_summary(df: pd.DataFrame) -> pd.DataFrame:
     )
     summary["ci95"] = 1.96 * summary["std_ts_delta"] / summary["n"].map(math.sqrt)
     return summary
-
-
-def accuracy_grid(shots: pd.DataFrame) -> pd.DataFrame:
-    """Field goal % in 2.5 ft squares, keeping only squares with enough attempts to mean something."""
-    binned = shots.assign(
-        x_bin=(shots["loc_x"] // BIN_SIZE) * BIN_SIZE + BIN_SIZE / 2,
-        y_bin=(shots["loc_y"] // BIN_SIZE) * BIN_SIZE + BIN_SIZE / 2,
-    )
-    grid = (
-        binned.groupby(["x_bin", "y_bin"])["shot_made_flag"]
-        .agg(attempts="size", fg_pct="mean")
-        .reset_index()
-    )
-    return grid[grid["attempts"] >= MIN_BIN_ATTEMPTS]
 
 
 if not DB_PATH.exists():
@@ -521,9 +507,7 @@ with shots_tab:
     )
 
     option_1, option_2 = st.columns(2)
-    view = option_1.radio(
-        "View", ["Accuracy heatmap", "Makes and misses"], horizontal=True
-    )
+    view = option_1.radio("View", ["Shot chart", "Makes and misses"], horizontal=True)
     shooter_options = ["All players"] + sorted(selected["player_name"].unique())
     shooter = option_2.selectbox("Player", shooter_options, key="shooter")
     if shooter != "All players":
@@ -537,35 +521,33 @@ with shots_tab:
         shot_2.metric("Made", f"{int(selected['shot_made_flag'].sum()):,}")
         shot_3.metric("Field goal %", f"{selected['shot_made_flag'].mean():.1%}")
 
-        if view == "Accuracy heatmap":
-            grid = accuracy_grid(selected)
-            fg_matrix = grid.pivot(index="y_bin", columns="x_bin", values="fg_pct")
-            attempts_matrix = grid.pivot(
-                index="y_bin", columns="x_bin", values="attempts"
+        if view == "Shot chart":
+            # Comparing the whole league with itself would colour everything "even", so then show raw FG%.
+            relative = len(selected) < len(shots_df)
+            stats = hex_stats(selected, shots_df)
+            fig, glow = hexbin_figure(stats, HOT_COLD, relative)
+            fig.update_layout(
+                title="Clutch shots: where they come from and how they fall"
             )
-            fig = go.Figure(
-                go.Heatmap(
-                    x=fg_matrix.columns,
-                    y=fg_matrix.index,
-                    z=fg_matrix.values,
-                    customdata=attempts_matrix.values,
-                    colorscale=HOT_COLD,
-                    zmin=0.25,
-                    zmax=0.65,
-                    colorbar=dict(title="FG%", tickformat=".0%"),
-                    hovertemplate="FG%: %{z:.1%}<br>Attempts: %{customdata}<extra></extra>",
-                    xgap=1,
-                    ygap=1,
+            # Rendered as its own small page so the glow can run on its own, with no play button.
+            st.iframe(
+                glowing_chart_html(
+                    draw_court(fig), glow, PLOTLY_CONFIG, NAVY, height=620
+                ),
+                height=640,
+            )
+            if relative:
+                st.caption(
+                    "Bigger hexagons mean more shots from that spot. Colour compares field goal % with every "
+                    "clutch shot from the same spot, 2004-05 to 2025-26: orange is better than the league, blue "
+                    "worse. Spots with few shots are pulled toward the league average, so one lucky make can't "
+                    "paint a hot zone."
                 )
-            )
-            fig.update_layout(title="Clutch field goal % by location")
-            st.plotly_chart(
-                draw_court(fig), width="stretch", theme=None, config=PLOTLY_CONFIG
-            )
-            st.caption(
-                f"Each square is 2.5 × 2.5 ft. Squares with fewer than {MIN_BIN_ATTEMPTS} attempts are "
-                "hidden, for the same reason as the shot minimum: small samples are noise."
-            )
+            else:
+                st.caption(
+                    "Bigger hexagons mean more shots from that spot; colour is field goal %. Pick a player or "
+                    "narrow the sidebar filters to compare them with the league from each spot."
+                )
         else:
             sample = selected
             if len(selected) > MAX_SCATTER_POINTS:
