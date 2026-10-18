@@ -5,9 +5,12 @@ Run from the project root:
 """
 
 import math
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
+import anthropic
 import duckdb
 import pandas as pd
 import plotly.express as px
@@ -32,6 +35,11 @@ from style import (
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "nba_clutch.duckdb"
+sys.path.insert(
+    0, str(ROOT)
+)  # the agent package lives at the project root, next to dashboard/
+from agent import analyst  # noqa: E402
+
 REPO_URL = "https://github.com/DanielBubalo/nba-clutch-reputation-data-eng"
 
 MIN_TIER_SEASON = 10  # a tier needs this many player-seasons in a season to get a point on the trend chart
@@ -47,7 +55,7 @@ st.markdown(CSS, unsafe_allow_html=True)
 @st.cache_data(show_spinner="Loading player-seasons…")
 def load_player_seasons() -> pd.DataFrame:
     """Every qualifying player-season. Small enough (about 5,000 rows) to load once and filter in memory."""
-    with duckdb.connect(str(DB_PATH), read_only=True) as con:
+    with analyst.connect() as con:
         return con.execute("""
             SELECT player_id, player_name, season, group_tier, team_abv,
                    ts_season, ts_clutch, ts_delta, usg_delta,
@@ -59,7 +67,7 @@ def load_player_seasons() -> pd.DataFrame:
 @st.cache_data(show_spinner="Loading clutch shots…")
 def load_shots() -> pd.DataFrame:
     """Every clutch shot with a recorded location (a handful have none)."""
-    with duckdb.connect(str(DB_PATH), read_only=True) as con:
+    with analyst.connect() as con:
         return con.execute("""
             SELECT player_id, player_name, season, group_tier, loc_x, loc_y, shot_made_flag
             FROM shots_with_opponent
@@ -205,8 +213,8 @@ if filtered.empty:
     )
     st.stop()
 
-overview_tab, leaderboard_tab, player_tab, shots_tab = st.tabs(
-    ["Overview", "Leaderboards", "Player explorer", "Shot chart"]
+overview_tab, leaderboard_tab, player_tab, shots_tab, ask_tab = st.tabs(
+    ["Overview", "Leaderboards", "Player explorer", "Shot chart", "Ask the data"]
 )
 
 
@@ -577,3 +585,156 @@ with shots_tab:
             st.plotly_chart(
                 draw_court(fig), width="stretch", theme=None, config=PLOTLY_CONFIG
             )
+
+
+# ---------------------------------------------------------- ask the data
+# The analyst agent from agent/analyst.py, behind a chat window.
+
+MAX_QUESTION_CHARS = 500
+MAX_QUESTIONS = 20  # per browser session, so one visitor can't run up the API bill
+HISTORY_MESSAGES = (
+    6  # the last few messages go along with each question, so follow-ups work
+)
+EXAMPLE_QUESTIONS = [
+    "Do Stars or Role players decline more in the clutch?",
+    "Which Stars improved the most in the clutch, with at least 30 clutch shots?",
+    "Does LeBron James shoot better or worse in the clutch than in the full season?",
+]
+CHAT_INSTRUCTIONS = (
+    "You are answering inside a dashboard chat. The interface already shows every SQL query you ran, "
+    "so do not include a Queries used section or any SQL in your answer. Lead with the direct answer, "
+    "then give at most a few short bullets of supporting numbers and caveats."
+)
+
+
+def step_line(step: int, name: str, tool_input: dict, output: str) -> str:
+    """One readable line about a tool call, for the live progress box."""
+    if name == "describe_models":
+        return f"**Step {step}.** Read the table descriptions."
+    status = "failed, retrying" if output.startswith("Query failed") else "done"
+    return f"**Step {step}.** Ran a query ({status})."
+
+
+def show_message(message: dict) -> None:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+        queries = message.get("queries", [])
+        if queries:
+            label = f"How this was answered: {len(queries)} quer{'y' if len(queries) == 1 else 'ies'}"
+            with st.expander(f"{label}, {message['seconds']:.0f}s"):
+                for query in queries:
+                    if not query["ok"]:
+                        st.caption("This query failed, and the agent corrected it:")
+                    st.code(query["sql"], language="sql")
+        if message.get("incomplete"):
+            st.warning(
+                f"This answer may be incomplete (stop reason: {message['incomplete']})."
+            )
+
+
+with ask_tab:
+    st.subheader("Ask the data")
+    st.caption(
+        "Questions are answered by Claude, which reads the dbt model descriptions and runs SQL against "
+        "the database. The connection is read-only, and every number comes from a query you can open "
+        "under the answer. The sidebar filters don't apply here: say what you want in the question."
+    )
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        st.info(
+            "Set ANTHROPIC_API_KEY in the terminal before starting the dashboard to turn this on "
+            "(see Analyst Agent in the README)."
+        )
+    else:
+        chat = st.session_state.setdefault("chat", [])
+        conversation = (
+            st.container()
+        )  # earlier messages, and the new one as it's answered
+        with conversation:
+            for message in chat:
+                show_message(message)
+
+        if not chat:
+            st.markdown("**Try one of these:**")
+            for column, example in zip(
+                st.columns(len(EXAMPLE_QUESTIONS)), EXAMPLE_QUESTIONS
+            ):
+                if column.button(example, width="stretch"):
+                    st.session_state["example_question"] = example
+                    st.rerun()
+
+        asked = sum(message["role"] == "user" for message in chat)
+        typed = st.chat_input(
+            (
+                "Ask about clutch performance…"
+                if asked < MAX_QUESTIONS
+                else "Question limit reached for this session"
+            ),
+            max_chars=MAX_QUESTION_CHARS,
+            disabled=asked >= MAX_QUESTIONS,
+        )
+        question = typed or st.session_state.pop("example_question", None)
+
+        if question:
+            history = [
+                {"role": m["role"], "content": m["content"]}
+                for m in chat[-HISTORY_MESSAGES:]
+            ]
+            queries: list[dict] = []
+            with conversation:
+                show_message({"role": "user", "content": question})
+                with st.chat_message("assistant"):
+                    with st.status("Thinking…", expanded=True) as progress:
+
+                        def on_step(
+                            step: int, name: str, tool_input: dict, output: str
+                        ) -> None:
+                            if name == "run_sql":
+                                queries.append(
+                                    {
+                                        "sql": tool_input.get("query", ""),
+                                        "ok": not output.startswith("Query failed"),
+                                    }
+                                )
+                            progress.update(label=f"Working… step {step}")
+                            st.markdown(step_line(step, name, tool_input, output))
+
+                        try:
+                            analyst.trace.quiet = (
+                                True  # the progress box replaces the terminal trace
+                            )
+                            result = analyst.ask(
+                                question,
+                                history=history,
+                                on_step=on_step,
+                                extra_instructions=CHAT_INSTRUCTIONS,
+                            )
+                        except anthropic.AnthropicError as error:
+                            progress.update(
+                                label="Couldn't reach Claude", state="error"
+                            )
+                            reply = {
+                                "role": "assistant",
+                                "content": f"Sorry, the question couldn't be answered: {type(error).__name__}.",
+                            }
+                        else:
+                            progress.update(
+                                label=f"Answered in {result.steps} steps, {result.seconds:.0f}s",
+                                state="complete" if result.complete else "error",
+                                expanded=False,
+                            )
+                            reply = {
+                                "role": "assistant",
+                                "content": result.answer,
+                                "queries": queries,
+                                "seconds": result.seconds,
+                                "incomplete": (
+                                    None if result.complete else result.stop_reason
+                                ),
+                            }
+            chat.extend([{"role": "user", "content": question}, reply])
+            st.rerun()  # redraw the conversation with the finished answer in place
+
+        if chat and st.button("Clear conversation"):
+            st.session_state["chat"] = []
+            st.rerun()

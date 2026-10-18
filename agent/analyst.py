@@ -8,6 +8,7 @@ import json
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -225,10 +226,27 @@ STOP_REASONS = {
 }
 
 
-def ask(question: str, max_steps: int = MAX_STEPS) -> AgentResult:
-    """Run the agent on one question and return the answer plus a record of the run."""
+# Called after every tool call with (step, tool name, tool input, tool output).
+StepCallback = Callable[[int, str, dict, str], None]
+
+
+def ask(
+    question: str,
+    max_steps: int = MAX_STEPS,
+    history: list[dict] | None = None,
+    on_step: StepCallback | None = None,
+    extra_instructions: str = "",
+) -> AgentResult:
+    """Run the agent on one question and return the answer plus a record of the run.
+
+    history: earlier {"role", "content"} messages, so follow-up questions have context.
+    on_step: called after each tool call; defaults to printing the step in the terminal.
+    extra_instructions: added to the system prompt, for example to fit a chat interface.
+    """
     client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
-    messages = [{"role": "user", "content": question}]
+    messages = list(history or []) + [{"role": "user", "content": question}]
+    system = SYSTEM_PROMPT + (f"\n\n{extra_instructions}" if extra_instructions else "")
+    show_step = on_step or show_tool_call
     started = time.perf_counter()
     queries: list[str] = []
     failed_queries = 0
@@ -238,7 +256,7 @@ def ask(question: str, max_steps: int = MAX_STEPS) -> AgentResult:
             response = client.messages.create(
                 model=MODEL,
                 max_tokens=MAX_TOKENS,
-                system=SYSTEM_PROMPT,
+                system=system,
                 tools=TOOLS,
                 messages=messages,
             )
@@ -254,7 +272,7 @@ def ask(question: str, max_steps: int = MAX_STEPS) -> AgentResult:
                 if block.name == "run_sql":
                     queries.append(block.input.get("query", ""))
                     failed_queries += output.startswith("Query failed")
-                show_tool_call(step, block.name, block.input, output)
+                show_step(step, block.name, block.input, output)
                 results.append(
                     {"type": "tool_result", "tool_use_id": block.id, "content": output}
                 )
