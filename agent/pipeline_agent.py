@@ -499,13 +499,31 @@ def ask(question: str, allow_actions: bool = True) -> str:
     return f"Stopped after {MAX_STEPS} steps without finishing. Check the trace above."
 
 
+def write_report(path: Path, question: str, answer: str) -> None:
+    """Save the agent's report as Markdown, for runs with no one watching (like Airflow's failure callback)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    written = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    path.write_text(
+        f"# Pipeline agent report\n\n_Written {written}_\n\n**Question:** {question}\n\n{answer}\n"
+    )
+
+
 if __name__ == "__main__":
-    diagnose_only = "--diagnose-only" in sys.argv
-    args = [arg for arg in sys.argv[1:] if arg != "--diagnose-only"]
+    args = sys.argv[1:]
+    diagnose_only = "--diagnose-only" in args
+    args = [arg for arg in args if arg != "--diagnose-only"]
+    report_path = None
+    if "--report" in args:
+        at = args.index("--report")
+        report_path = Path(args[at + 1])
+        del args[at : at + 2]
     if len(args) != 1:
         sys.exit(
-            'Usage: python3 agent/pipeline_agent.py [--diagnose-only] "your question"'
+            'Usage: python3 agent/pipeline_agent.py [--diagnose-only] [--report FILE] "your question"'
         )
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        sys.exit("ANTHROPIC_API_KEY isn't set, so the agent can't run.")
+
     mode = "diagnose only" if diagnose_only else "can act, with your approval"
     console.print(
         Panel(
@@ -523,3 +541,6 @@ if __name__ == "__main__":
             padding=(1, 2),
         )
     )
+    if report_path:
+        write_report(report_path, args[0], answer)
+        console.print(f"[dim]Report saved to {report_path}[/]")
