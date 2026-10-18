@@ -11,7 +11,7 @@
 > [!IMPORTANT]
 > **Stars decline the most in the clutch.** Across 5,086 player-seasons (2004-05 to 2025-26), every reputation tier shoots worse in the clutch than over the full season, and Stars drop the most: −1.5 points of true shooting vs. −0.65 for role players. Reputation gets them the ball, but it doesn't make the shots go in.
 
-An ELT pipeline that extracts NBA player and team statistics via `nba_api`, loads them into DuckDB, and transforms them with dbt to analyze how players' clutch performance compares to their season-long performance and reputation tier — do "Stars" actually perform better in the clutch, or does reputation outpace results? An analyst agent sits on top, answering questions about the data in plain English with read-only SQL.
+An ELT pipeline that extracts NBA player and team statistics via `nba_api`, loads them into DuckDB, and transforms them with dbt to analyze how players' clutch performance compares to their season-long performance and reputation tier — do "Stars" actually perform better in the clutch, or does reputation outpace results? Two Claude agents sit on top: an analyst that answers questions about the data in plain English with read-only SQL (in the terminal and in the dashboard), and a pipeline agent that diagnoses Airflow failures and acts only with your approval.
 
 ## Architecture
 
@@ -24,13 +24,15 @@ flowchart LR
     AN --> SHOTS[load_shots.py]
     SHOTS --> DB
     AN --> AGENT[Analyst agent<br/>read-only SQL]
-    subgraph Airflow
     AN --> DASH[Streamlit dashboard<br/>read-only]
+    AGENT --> DASH
+    subgraph Airflow
         EL
         STG
         AN
         SHOTS
     end
+    PIPE[Pipeline agent<br/>diagnoses, acts with approval] -. REST API .-> Airflow
 ```
 
 The pipeline follows a strict ELT pattern with three sequential stages:
@@ -80,13 +82,24 @@ data_eng_project/
         dbt_project.yml
         tests/           — singular data tests (e.g. shot counts vs. official clutch FGA)
     agent/
-        analyst.py       — analyst agent: answers questions with read-only SQL (see Analyst Agent)
-        eval_cases.py    — eval questions and the checks each answer must pass
-        run_evals.py     — runs the agent on every eval case and scores the answers
+        analyst.py           — analyst agent: answers questions with read-only SQL (see Analyst Agent)
+        eval_cases.py        — eval questions and the checks each answer must pass
+        run_evals.py         — runs the analyst on every eval case and scores the answers
+        pipeline_agent.py    — pipeline agent: diagnoses Airflow runs, acts only with approval (see Pipeline Agent)
+        reports/             — failure reports written by the Airflow callback (gitignored)
+        pipeline_audit.jsonl — every action the pipeline agent proposed and took (gitignored)
     dashboard/
-        app.py           — Streamlit dashboard: overview, leaderboards, player explorer, shot chart
+        app.py           — Streamlit dashboard: overview, leaderboards, player explorer, shot chart, Ask the data
         court.py         — draws an NBA half-court in nba_api's shot coordinates
+        hexbin.py        — hexbin shot chart, with the glowing hot zones
+        style.py         — colours, chart template and the scoreboard strip
+    .streamlit/
+        config.toml      — the dashboard's theme (fonts, colours)
     airflow/
+        dags/
+            nba_pipeline.py        — extract, dbt build, then triggers the shots DAG
+            nba_shots_pipeline.py  — shot extraction and the full dbt build
+            agent_callbacks.py     — on any task failure, runs the pipeline agent and saves a report
         Dockerfile                    — custom Airflow image with project dependencies
         requirements-dbt.txt          — dbt packages, installed into a separate venv in the image
         requirements.txt              — pipeline packages, installed with Airflow's constraints file
@@ -107,7 +120,7 @@ data_eng_project/
 
 ## Setup & Running
 
-**Requirements:** Python 3.13, Docker Desktop (for Airflow). Python dependencies are pinned in `requirements.txt`. The analyst agent also needs an Anthropic API key (see Analyst Agent).
+**Requirements:** Python 3.13, Docker Desktop (for Airflow). Python dependencies are pinned in `requirements.txt`. Both agents also need an Anthropic API key (see Analyst Agent and Pipeline Agent).
 
 **Install dependencies:**
 ```bash
@@ -142,7 +155,7 @@ Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (defa
 <details>
 <summary><b>Why a custom Airflow image and a separate dbt venv?</b></summary>
 
-Airflow runs on a custom image (`airflow/Dockerfile`). Pipeline packages (`airflow/requirements.txt`) are installed with Airflow's official constraints file, so they can't shift Airflow's own tested dependencies. dbt is installed in a separate virtual environment (`airflow/requirements-dbt.txt`, at `/home/airflow/dbt_venv`) because its dependencies conflict with Airflow's (for example, dbt-core requires `pathspec<1.1` while Airflow pins 1.1.1); the DAGs call dbt by that path. Versions are pinned identically to the root `requirements.txt`, so local and Airflow runs use the same code, with one exception: pyarrow isn't listed in `airflow/requirements.txt`, so Airflow's constraints file sets it (25.0.0). The root file pins 25.0.1 because Streamlit, used only by the local dashboard, excludes 25.0.0.
+Airflow runs on a custom image (`airflow/Dockerfile`). Pipeline packages (`airflow/requirements.txt`) are installed with Airflow's official constraints file, so they can't shift Airflow's own tested dependencies. dbt is installed in a separate virtual environment (`airflow/requirements-dbt.txt`, at `/home/airflow/dbt_venv`) because its dependencies conflict with Airflow's (for example, dbt-core requires `pathspec<1.1` while Airflow pins 1.1.1); the DAGs call dbt by that path. Versions are pinned identically to the root `requirements.txt`, so local and Airflow runs use the same code, with one exception: pyarrow isn't listed in `airflow/requirements.txt`, so Airflow's constraints file sets it (25.0.0). The root file pins 25.0.1 because Streamlit, used only by the local dashboard, excludes 25.0.0. `anthropic` is also in `airflow/requirements.txt`, so the failure callback can run the pipeline agent inside the containers; `rich` isn't, because Airflow already pins it (14.3.4) and a second pin would conflict.
 
 </details>
 
@@ -241,12 +254,13 @@ the ranking became consistent across mean and median.
 streamlit run dashboard/app.py
 ```
 
-It opens at `localhost:8501` with four tabs:
+It opens at `localhost:8501` with five tabs:
 
 - **Overview:** the headline finding computed live, mean `ts_delta` by tier with 95% intervals, and the Findings table.
 - **Leaderboards:** the biggest clutch declines and improvements, filterable by tier and season, with a minimum clutch shot attempts slider. A scatter of `ts_delta` against clutch attempts shows why the minimum matters: small samples spread far from zero, and the spread narrows as attempts grow.
 - **Player explorer:** one player's full-season and clutch true shooting across their career, with each season colored by tier, so you can see the season a player's reputation starts.
-- **Shot chart:** all 159,315 located clutch shots on a half-court, as an FG% heatmap (2.5 ft squares, hiding squares with fewer than 20 attempts) or as individual makes and misses.
+- **Shot chart:** all 159,315 located clutch shots on a half-court as a hexbin chart: hexagon size shows how many shots came from a spot, colour shows FG% against every clutch shot from the same spot, and the hottest zones glow. Spots with few shots are pulled toward the league average, so one lucky make can't paint a hot zone. A second view shows individual makes and misses.
+- **Ask the data:** a chat with the analyst agent (see below). Each answer shows the SQL behind it, follow-up questions keep the context, and each session is capped at 20 questions. It needs `ANTHROPIC_API_KEY` set in the terminal before starting the dashboard.
 
 ![Clutch shot heatmap](docs/dashboard-shot-chart.png)
 
@@ -297,6 +311,43 @@ python3 agent/analyst.py --verbose "Which Star player-seasons had the biggest cl
 Expected answers aren't hardcoded: each case's `truth_sql` computes them from the database at eval time, so the evals stay correct when the data is rebuilt. The checker was verified by deliberately corrupting an expected answer and confirming the case failed. Run the full set after changing the prompt, the model descriptions, or the model.
 
 The agent's answers are only as good as the descriptions in `dbt/models/schema.yml`. If it misreads a column or a model's grain, fix the description, rerun `dbt parse`, and ask again.
+
+**In the dashboard.** The **Ask the data** tab runs the same agent. `ask()` takes a callback for each step, so the dashboard shows live progress instead of terminal output, plus the last few messages as history, so follow-ups work. Hostile questions are already handled by the guardrails above: a visitor can type anything, but the connection still refuses everything except a single read-only `SELECT`.
+
+## Pipeline Agent
+
+`agent/pipeline_agent.py` is an on-call assistant for the Airflow pipeline. It checks run states, reads failed task logs and the extract's failure manifests, classifies each failure as transient, data, code or unknown, and quotes the log lines behind its diagnosis. It never runs the pipeline itself: Airflow does. The agent works through Airflow's REST API, the same way you would in the Airflow UI.
+
+**Usage** (from the project root, with Airflow running)
+```bash
+python3 agent/pipeline_agent.py --diagnose-only "Why did the last run fail?"
+python3 agent/pipeline_agent.py "The extract timed out last night; retry it if that's safe."
+```
+
+| Tool | What it does | Permission |
+|---|---|---|
+| `pipeline_status` | Recent runs of both DAGs and the state of every task | read |
+| `task_log` | A task's log, trimmed to error lines plus the end | read |
+| `failure_manifests` | NBA API calls that still failed after retries | read |
+| `data_freshness` | When the database was last written, and key row counts | read |
+| `retry_failed_task` | Clears a failed task so Airflow reruns it and everything after it | needs your approval |
+| `trigger_pipeline` | Starts a new full run | needs your approval |
+
+**Guardrails.** The rules live in the tools' code, not just the prompt, so they hold even if the model ignores its instructions:
+- Every action shows you the proposal and its reason, and waits for you to type `y`. Anything else, including no one at the keyboard, is a no.
+- Actions are refused while any run is active, since DuckDB allows one writer at a time.
+- A task can be retried at most once per run. If it fails again, the agent stops and hands it to you.
+- Every proposal, decline and action is appended to `agent/pipeline_audit.jsonl`, which is also what enforces the one-retry limit.
+- `--diagnose-only` removes the action tools entirely, so the model can't even ask for them.
+
+**Automatic failure reports.** Both DAGs register `diagnose_failure` (in `airflow/dags/agent_callbacks.py`) as their `on_failure_callback`. When any task fails, it runs the agent in diagnose-only mode as a separate process and saves a report to `agent/reports/<dag>__<task>__<run>__try<n>.md`. If the agent can't run, the report says so and includes its error output; the callback never raises, so it can't hide the original failure. To turn it on, export the key in the terminal before starting the containers (Compose passes it through), or put it in `airflow/.env`:
+```bash
+cd airflow
+read -s "ANTHROPIC_API_KEY?Paste key: "
+export ANTHROPIC_API_KEY
+docker compose up -d
+```
+With no key set, the callback skips quietly. Inside the containers the agent reaches Airflow at `http://airflow-apiserver:8080` (set as `AIRFLOW_API_URL` in `docker-compose.yaml`); locally it uses `http://localhost:8080` and the default `airflow` / `airflow` login, which `AIRFLOW_USERNAME` and `AIRFLOW_PASSWORD` override.
 
 ## Known Limitations & Deliberate Simplifications
 

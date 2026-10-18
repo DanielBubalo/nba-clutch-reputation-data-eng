@@ -1,0 +1,2 @@
+{"time": "2026-10-18T16:04:54+00:00", "event": "trigger_proposed", "reason": "Operator requested a fresh full run to make the data current. No runs are active, and the last runs of both DAGs succeeded. The database was last written 2026-10-01T18:36."}
+{"time": "2026-10-18T16:05:03+00:00", "event": "trigger_declined", "reason": "Operator requested a fresh full run to make the data current. No runs are active, and the last runs of both DAGs succeeded. The database was last written 2026-10-01T18:36."}
