@@ -2,3 +2,4 @@ nba_api==1.11.4
 duckdb==1.5.5
 pandas==3.0.5
 requests==2.34.2
+anthropic==1.11.0
