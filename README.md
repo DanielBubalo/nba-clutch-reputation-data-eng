@@ -109,6 +109,7 @@ data_eng_project/
         agent-demo.png            — screenshot of the analyst agent
         dashboard-overview.png    — screenshot of the dashboard's overview tab
         dashboard-shot-chart.png  — screenshot of the clutch shot heatmap
+        ask-the-data.png          — screenshot of the dashboard's Ask the data tab
     scratch/
         nba_data_load.ipynb              — ad-hoc notebook for testing snippets
         findings_ts_delta_by_tier.sql    — query behind the Findings section below
@@ -260,11 +261,35 @@ It opens at `localhost:8501` with five tabs:
 - **Leaderboards:** the biggest clutch declines and improvements, filterable by tier and season, with a minimum clutch shot attempts slider. A scatter of `ts_delta` against clutch attempts shows why the minimum matters: small samples spread far from zero, and the spread narrows as attempts grow.
 - **Player explorer:** one player's full-season and clutch true shooting across their career, with each season colored by tier, so you can see the season a player's reputation starts.
 - **Shot chart:** all 159,315 located clutch shots on a half-court as a hexbin chart: hexagon size shows how many shots came from a spot, colour shows FG% against every clutch shot from the same spot, and the hottest zones glow. Spots with few shots are pulled toward the league average, so one lucky make can't paint a hot zone. A second view shows individual makes and misses.
-- **Ask the data:** a chat with the analyst agent (see below). Each answer shows the SQL behind it, follow-up questions keep the context, and each session is capped at 20 questions. It needs `ANTHROPIC_API_KEY` set in the terminal before starting the dashboard.
+- - **Ask the data:** a chat with the analyst agent, with the SQL behind every answer (see [Ask the Data](#ask-the-data-the-analyst-in-the-dashboard)).
 
 ![Clutch shot heatmap](docs/dashboard-shot-chart.png)
 
 The app reads DuckDB with a read-only connection and caches each query, so the database is read once per session and every filter runs in memory. Player-seasons (about 5,000 rows) and shots (about 160,000) are small enough to load whole; at a larger scale, the filtering would move into SQL. The **Reload data** button in the sidebar clears the cache after a new pipeline run. Like the agent, the dashboard can't open the database while the pipeline or a dbt build is writing to it, and it shows a message instead of crashing.
+
+## Ask the Data: the Analyst in the Dashboard
+
+![Ask the data tab: a question, the agent's answer, and the SQL behind it](docs/ask-the-data.png)
+
+The dashboard's **Ask the data** tab puts the analyst agent behind a chat window, so anyone can ask questions about the data without a terminal or SQL. Type a question, or click one of the example questions when the chat is empty.
+
+- **Live progress.** While the agent works, a status box shows each step as it happens (reading the table descriptions, running a query, retrying a failed query), then collapses to a summary like "Answered in 3 steps, 14s".
+- **The evidence under every answer.** A "How this was answered" expander lists every SQL query the agent ran, so any number can be checked. Queries that failed and were corrected are marked.
+- **Follow-up questions.** The last few messages go along with each new question, so "now only Stars" or "and in 2015-16?" keep the context.
+- **Short answers.** The agent gets an extra instruction in the dashboard: lead with the direct answer, add a few supporting numbers and caveats, and leave the SQL to the expander.
+- **Limits for public use.** Questions are capped at 500 characters and each browser session at 20 questions, which keeps API costs bounded. Without `ANTHROPIC_API_KEY`, the tab shows how to turn it on instead of failing.
+
+**Running it.** Set the key in the same terminal before starting the dashboard, since Streamlit only sees variables that exist when it starts:
+
+```bash
+read -s "ANTHROPIC_API_KEY?Paste key: "
+export ANTHROPIC_API_KEY
+streamlit run dashboard/app.py
+```
+
+**How it works.** The tab calls the same `ask()` function as the terminal agent, with three optional arguments: `on_step`, a callback that updates the progress box instead of printing to the terminal; `history`, the earlier messages; and `extra_instructions`, the dashboard's answer style. The agent doesn't know where it's being displayed, so the guardrails, evals and model descriptions all carry over unchanged.
+
+**Safety.** Visitors can type anything, including attempts to make the agent change data. The guardrails sit in the database connection, not the prompt: it's read-only, has no file or network access, and runs nothing but a single `SELECT`. So a hostile question gets a refusal or a harmless query, never a write. The dashboard's own charts use the same locked-down connection, which also lets both open the database at the same time.
 
 ## Analyst Agent
 
@@ -312,7 +337,7 @@ Expected answers aren't hardcoded: each case's `truth_sql` computes them from th
 
 The agent's answers are only as good as the descriptions in `dbt/models/schema.yml`. If it misreads a column or a model's grain, fix the description, rerun `dbt parse`, and ask again.
 
-**In the dashboard.** The **Ask the data** tab runs the same agent. `ask()` takes a callback for each step, so the dashboard shows live progress instead of terminal output, plus the last few messages as history, so follow-ups work. Hostile questions are already handled by the guardrails above: a visitor can type anything, but the connection still refuses everything except a single read-only `SELECT`.
+**In the dashboard.** The same agent runs in the dashboard's chat tab; see [Ask the Data](#ask-the-data-the-analyst-in-the-dashboard).
 
 ## Pipeline Agent
 
