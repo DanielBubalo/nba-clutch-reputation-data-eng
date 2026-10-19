@@ -1,8 +1,8 @@
 from datetime import datetime
 
-from airflow.sdk import DAG
-from airflow.providers.standard.operators.bash import BashOperator
-from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
+from airflow.sdk import DAG  # type: ignore
+from airflow.providers.standard.operators.bash import BashOperator  # type: ignore
+from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator  # type: ignore
 
 from agent_callbacks import diagnose_failure
 
