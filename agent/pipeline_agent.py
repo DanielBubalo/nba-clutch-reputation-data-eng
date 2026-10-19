@@ -26,7 +26,8 @@ from rich.panel import Panel
 import analyst  # the read-only database connection, reused for data_freshness
 
 ROOT = Path(__file__).resolve().parents[1]
-FAILURES_DIR = ROOT / "pipeline" / "cached_data" / "failures"
+CACHE_DIR = ROOT / "pipeline" / "cached_data"
+FAILURES_DIR = CACHE_DIR / "failures"
 AUDIT_LOG = ROOT / "agent" / "pipeline_audit.jsonl"
 
 AIRFLOW_URL = os.environ.get("AIRFLOW_API_URL", "http://localhost:8080")
@@ -161,7 +162,7 @@ def approved(proposal: str) -> bool:
         )
     )
     try:
-        return input("Approve? [y/n] ").strip().lower() in {"y", "yes"}
+        return input("Approve? [y/N] ").strip().lower() in {"y", "yes"}
     except EOFError:  # no one at the keyboard, for example when run from a script
         return False
 
@@ -191,18 +192,48 @@ def pipeline_status() -> str:
 
 
 def trim_log(text: str) -> str:
-    """Keep what diagnosis needs: every error-looking line, plus the end of the log."""
+    """Keep what diagnosis needs: cache use, every error-looking line, plus the end of the log."""
     lines = text.splitlines()
+    from_cache = sum("file already there" in line for line in lines)
+    from_api = sum("Pulling " in line for line in lines)
+    cache_line = f"Cache use in this log: {from_cache} files read from the cache, {from_api} pulled from the NBA API.\n\n"
     keywords = ("error", "exception", "traceback", "failed", "retrying", "warning")
     flagged = [line for line in lines if any(word in line.lower() for word in keywords)]
     tail = lines[-120:]
     trimmed = (
-        "Lines mentioning errors:\n"
+        cache_line
+        + "Lines mentioning errors:\n"
         + "\n".join(flagged[-60:])
         + "\n\nEnd of the log:\n"
         + "\n".join(tail)
     )
     return trimmed[-MAX_LOG_CHARS:]
+
+
+def log_text(content) -> str:
+    """Airflow 3 returns a log as JSON: a list of structured entries. Turn it back into plain lines."""
+    if isinstance(content, str):
+        return content
+    lines = []
+    for entry in content or []:
+        if isinstance(entry, dict):
+            prefix = " ".join(
+                str(entry[key]) for key in ("timestamp", "level") if entry.get(key)
+            )
+            lines.append(f"{prefix} {entry.get('event', '')}".strip())
+            # Exceptions arrive as structured details rather than a printed traceback.
+            for detail in entry.get("error_detail") or []:
+                if isinstance(detail, dict):
+                    lines.append(
+                        f"{detail.get('exc_type', 'Error')}: {detail.get('exc_value', '')}"
+                    )
+        elif (
+            isinstance(entry, (list, tuple)) and entry
+        ):  # older format: [host, text] pairs
+            lines.append(str(entry[-1]))
+        else:
+            lines.append(str(entry))
+    return "\n".join(lines)
 
 
 def task_log(
@@ -218,9 +249,8 @@ def task_log(
     response = airflow.get(
         f"/dags/{dag_id}/dagRuns/{run_id}/taskInstances/{task_id}/logs/{try_number}",
         {"full_content": "true"},
-        accept="text/plain",
     )
-    return trim_log(response.text)
+    return trim_log(log_text(response.json().get("content")))
 
 
 def failure_manifests() -> str:
@@ -239,6 +269,27 @@ def failure_manifests() -> str:
         if len(failures) > 10:
             parts.append(f"  ... and {len(failures) - 10} more")
     return "\n\n".join(parts)
+
+
+def cache_status() -> str:
+    """How much of the extract is already cached on disk, which decides whether a run takes minutes or hours."""
+    if not CACHE_DIR.exists():
+        return "No cache folder: a run would pull everything from the NBA API (about 3.5 hours)."
+    lines = []
+    for folder in sorted(
+        p for p in CACHE_DIR.iterdir() if p.is_dir() and p.name != "failures"
+    ):
+        files = list(folder.rglob("*.parquet"))
+        if not files:
+            lines.append(f"{folder.name}: empty")
+            continue
+        newest = datetime.fromtimestamp(
+            max(f.stat().st_mtime for f in files)
+        ).isoformat(timespec="minutes")
+        lines.append(f"{folder.name}: {len(files):,} cached files, newest {newest}")
+    if not lines:
+        return "The cache folder is empty: a run would pull everything from the NBA API (about 3.5 hours)."
+    return "\n".join(lines)
 
 
 def data_freshness() -> str:
@@ -355,6 +406,11 @@ READ_TOOLS = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
+        "name": "cache_status",
+        "description": "How many API responses are already cached on disk, per data type. A warm cache makes a run fast; an empty one means a roughly 3.5-hour pull.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "data_freshness",
         "description": "When the database was last written, and row counts of the main analysis tables.",
         "input_schema": {"type": "object", "properties": {}},
@@ -415,6 +471,9 @@ How to work:
   the data broke an assumption), code (an exception from a bug), or unknown. Quote the log lines that support it.
 - A retry only makes sense for transient failures. For data or code failures, explain what a person should look at.
 - Never retry the same task more than once; if it failed after a retry, stop and hand it to the operator.
+- Before proposing trigger_pipeline, call cache_status and say roughly how long the run should take: a warm cache means
+  most data is read from disk; an empty or missing cache means a full pull of about 3.5 hours.
+- task_log reports how many files a run read from the cache versus pulled from the API; use it to confirm a run used the cache.
 - Only propose an action when the evidence supports it, and state the reason clearly: the operator reads it before approving.
 - If action tools aren't available to you, say what action you would recommend instead.
 - End with a short summary: what happened, your diagnosis, and what was done or should be done next."""
@@ -426,6 +485,7 @@ def run_tool(name: str, tool_input: dict) -> str:
         "task_log": task_log,
         "failure_manifests": failure_manifests,
         "data_freshness": data_freshness,
+        "cache_status": cache_status,
         "trigger_pipeline": trigger_pipeline,
         "retry_failed_task": retry_failed_task,
     }
