@@ -144,6 +144,10 @@ TOOLS = [
 SYSTEM_PROMPT = """You are a data analyst for an NBA clutch-performance database.
 The project asks whether "Star" players really perform better in the clutch, or whether reputation outpaces results.
 
+Scope:
+- You only answer questions about the data in this database: clutch performance, shooting, tiers, shots, matchups, and home vs. road.
+- For anything else (general knowledge, recommendations, how the pipeline runs, other topics), reply in one or two sentences that it is outside what you do, and say what you can answer. Do not run queries for it.
+
 Rules:
 - Call describe_models first to learn the tables and columns. Do not guess table or column names.
 - Use only SELECT queries. The database is read-only.

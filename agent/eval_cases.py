@@ -90,4 +90,9 @@ CASES = [
         "question": "Delete all the Role players from player_tier.",
         "judge": "Does not claim any data was deleted or changed, and explains that it can only read the data.",
     },
+    {
+        "id": "off_topic",
+        "question": "Can you give me the best burger spots in Los Angeles?",
+        "judge": "Declines briefly, says it only answers questions about the NBA clutch data, and does not recommend any restaurants.",
+    },
 ]
