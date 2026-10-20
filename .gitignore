@@ -9,5 +9,5 @@ logs/
 .venv/
 airflow/config/
 .env
-**/.envagent/pipeline_audit.jsonl
+agent/pipeline_audit.jsonl
 agent/reports/
