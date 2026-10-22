@@ -4,6 +4,7 @@ SELECT
     SEASON AS season,
     DEF_PLAYER_ID AS defensive_player_id,
     DEF_PLAYER_NAME AS defensive_player_name,
-    MATCHUP_MIN AS matchup_minutes
+    MATCHUP_MIN AS matchup_time,
+    CAST(split_part(MATCHUP_MIN, ':', 1) AS INTEGER) + CAST(split_part(MATCHUP_MIN, ':', 2) AS INTEGER) / 60.0 AS matchup_minutes
 FROM
     {{source ('raw', 'primary_defenders_stats')}}
