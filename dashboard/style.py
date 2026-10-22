@@ -124,7 +124,7 @@ def scoreboard_html(summary) -> str:
     panels = []
     for index, row in summary.iterrows():
         points = row.mean_ts_delta * 100
-        value = f"{points:+.1f}".replace("-", "\u2212")
+        value = f"{points:+.2f}".replace("-", "\u2212")
         note = "Biggest drop. " if index == lowest else ""
         panels.append(
             f'<div class="score{" lowest" if index == lowest else ""}" '
