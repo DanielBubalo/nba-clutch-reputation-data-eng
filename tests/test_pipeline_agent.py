@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
-import pipeline_agent as pa  # noqa: E402
+import pipeline_agent as pa  # type: ignore # noqa: E402
 
 RUN_ID = "manual__2026-10-22T09:00:00+00:00"
 
