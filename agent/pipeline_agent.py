@@ -91,8 +91,22 @@ class AirflowClient:
         response.raise_for_status()
         return response.json()
 
+    def patch(self, path: str, body: dict) -> dict:
+        response = requests.patch(
+            f"{AIRFLOW_URL}/api/v2{path}",
+            json=body,
+            headers=self._headers(),
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()
+
 
 airflow = AirflowClient()
+
+
+def is_paused(dag_id: str) -> bool:
+    return airflow.get(f"/dags/{dag_id}").json()["is_paused"]
 
 
 def recent_runs(dag_id: str, limit: int) -> list[dict]:
@@ -174,10 +188,15 @@ def pipeline_status() -> str:
     lines = []
     for dag_id in DAGS:
         runs = recent_runs(dag_id, 3)
+        paused = (
+            " (PAUSED: its runs wait in queued until it is unpaused)"
+            if is_paused(dag_id)
+            else ""
+        )
         if not runs:
-            lines.append(f"{dag_id}: no runs yet.")
+            lines.append(f"{dag_id}{paused}: no runs yet.")
             continue
-        lines.append(f"{dag_id}:")
+        lines.append(f"{dag_id}{paused}:")
         for run in runs:
             lines.append(
                 f"  run {run['dag_run_id']}: {run['state']} (started {run.get('start_date')}, ended {run.get('end_date')})"
@@ -333,6 +352,12 @@ def trigger_pipeline(reason: str) -> str:
     refusal = guard_no_active_runs()
     if refusal:
         return refusal
+    paused = [dag_id for dag_id in DAGS if is_paused(dag_id)]
+    if paused:
+        return (
+            f"Refused: {' and '.join(paused)} {'is' if len(paused) == 1 else 'are'} paused, so a new run would sit in queued. "
+            "Unpause it first with set_dag_paused. Both DAGs must be unpaused, because the pipeline triggers the shots DAG."
+        )
     audit("trigger_proposed", reason=reason)
     if not approved(f"Trigger a new run of nba_clutch_pipeline.\n\nReason: {reason}"):
         audit("trigger_declined", reason=reason)
@@ -340,6 +365,27 @@ def trigger_pipeline(reason: str) -> str:
     run = airflow.post("/dags/nba_clutch_pipeline/dagRuns", {"logical_date": None})
     audit("trigger_done", reason=reason, run_id=run["dag_run_id"])
     return f"Triggered nba_clutch_pipeline run {run['dag_run_id']} (state: {run['state']})."
+
+
+def set_dag_paused(dag_id: str, paused: bool, reason: str) -> str:
+    if dag_id not in DAGS:
+        return f"Refused: {dag_id} isn't one of this project's DAGs."
+    if is_paused(dag_id) == paused:
+        return f"{dag_id} is already {'paused' if paused else 'unpaused'}; nothing to change."
+    action = "Pause" if paused else "Unpause"
+    effect = (
+        "Airflow stops starting new runs and new tasks for it; tasks already running finish."
+        if paused
+        else "Airflow starts any of its queued runs and accepts new ones."
+    )
+    details = dict(dag_id=dag_id, paused=paused, reason=reason)
+    audit("pause_change_proposed", **details)
+    if not approved(f"{action} {dag_id}. {effect}\n\nReason: {reason}"):
+        audit("pause_change_declined", **details)
+        return f"Declined by the operator. {dag_id} was not changed."
+    airflow.patch(f"/dags/{dag_id}", {"is_paused": paused})
+    audit("pause_change_done", **details)
+    return f"{dag_id} is now {'paused' if paused else 'unpaused'}."
 
 
 def retry_failed_task(dag_id: str, run_id: str, task_id: str, reason: str) -> str:
@@ -452,6 +498,28 @@ ACTION_TOOLS = [
             "required": ["dag_id", "run_id", "task_id", "reason"],
         },
     },
+    {
+        "name": "set_dag_paused",
+        "description": (
+            "Pause or unpause one of the pipeline's DAGs. A paused DAG's runs wait in queued. "
+            "The operator must approve it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "dag_id": {"type": "string", "enum": DAGS},
+                "paused": {
+                    "type": "boolean",
+                    "description": "true to pause, false to unpause.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Why the change is needed, for the operator and the audit log.",
+                },
+            },
+            "required": ["dag_id", "paused", "reason"],
+        },
+    },
 ]
 
 SYSTEM_PROMPT = """You are the on-call assistant for an NBA data pipeline orchestrated by Airflow.
@@ -475,6 +543,8 @@ How to work:
 - Classify every failure as one of: transient (API timeouts, throttling, connection errors), data (a dbt test failed:
   the data broke an assumption), code (an exception from a bug), or unknown. Quote the log lines that support it.
 - A retry only makes sense for transient failures. For data or code failures, explain what a person should look at.
+- A run stuck in queued usually means its DAG is paused (pipeline_status marks it PAUSED). Both DAGs must be unpaused
+  for a full run, because the pipeline triggers the shots DAG.
 - Never retry the same task more than once; if it failed after a retry, stop and hand it to the operator.
 - Before proposing trigger_pipeline, call cache_status and say roughly how long the run should take: a warm cache means
   most data is read from disk; an empty or missing cache means a full pull of about 3.5 hours.
@@ -493,6 +563,7 @@ def run_tool(name: str, tool_input: dict) -> str:
         "cache_status": cache_status,
         "trigger_pipeline": trigger_pipeline,
         "retry_failed_task": retry_failed_task,
+        "set_dag_paused": set_dag_paused,
     }
     if name not in tools:
         return f"Unknown tool: {name}"
@@ -505,7 +576,11 @@ def run_tool(name: str, tool_input: dict) -> str:
 
 
 def show_tool_call(step: int, name: str, tool_input: dict, output: str) -> None:
-    colour = "yellow" if name in {"trigger_pipeline", "retry_failed_task"} else "cyan"
+    colour = (
+        "yellow"
+        if name in {"trigger_pipeline", "retry_failed_task", "set_dag_paused"}
+        else "cyan"
+    )
     arguments = ", ".join(
         f"{key}={value}" for key, value in tool_input.items() if key != "reason"
     )

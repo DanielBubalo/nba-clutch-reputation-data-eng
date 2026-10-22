@@ -28,6 +28,9 @@ jobs:
         working-directory: dbt
         run: dbt deps --profiles-dir .
 
+      - name: Test the pipeline agent's guardrails
+        run: pytest tests/ -q
+
       - name: Build every model with zero rows
         working-directory: dbt
         run: dbt run --empty --profiles-dir .

@@ -10,3 +10,4 @@ anthropic==1.11.0
 rich==15.0.0
 streamlit==1.65.0
 plotly==7.1.0
+pytest==9.1.1
