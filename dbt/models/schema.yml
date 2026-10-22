@@ -43,7 +43,7 @@ models:
               - player_id
               - season
   - name: matchup_analysis
-    description: "One row per offensive player, defender, and season. player_id is the offensive player and defensive_player_id is a defender who guarded them. Only includes offensive players who appear in player_clutch_performance. defender_defensive_rating is the defender's own full-season defensive rating. ts_delta and group_tier belong to the offensive player, copied from player_clutch_performance. matchup_minutes is stored as text, so cast it to a number before sorting or comparing."
+    description: "One row per offensive player, defender, and season. player_id is the offensive player and defensive_player_id is a defender who guarded them. Only includes offensive players who appear in player_clutch_performance. defender_defensive_rating is the defender's own full-season defensive rating. ts_delta and group_tier belong to the offensive player, copied from player_clutch_performance. matchup_minutes is decimal minutes (12:27 is 12.45), for sorting and calculations; matchup_time is the same value as minutes:seconds text, for showing a single matchup. When reporting computed minutes such as totals or averages, round to one decimal place. Matchup data covers 2017-18 onward; 2016-17 has only a small partial sample (about 3,500 rows, against 120,000 or more in later seasons), and earlier seasons have no rows."
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -140,7 +140,19 @@ models:
               - player_id
               - season
   - name: stg_primary_defenders_stats
-    description: "Staging model for the raw primary_defenders_stats table: renames OFF_PLAYER_ID/OFF_PLAYER_NAME to player_id/player_name and DEF_PLAYER_ID/DEF_PLAYER_NAME to defensive_player_id/defensive_player_name."
+    description: "Staging model for the raw primary_defenders_stats table: renames OFF_PLAYER_ID/OFF_PLAYER_NAME to player_id/player_name and DEF_PLAYER_ID/DEF_PLAYER_NAME to defensive_player_id/defensive_player_name, and converts MATCHUP_MIN from a mm:ss string to decimal minutes."
+    columns:
+      - name: matchup_minutes
+        description: "Minutes the defender guarded the offensive player that season, as a decimal (12:27 becomes 12.45)."
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: matchup_time
+        description: "The same matchup time as the API sends it, in minutes:seconds. Use this when showing a single matchup's time to a reader."
+        data_tests:
+          - not_null
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:

@@ -385,3 +385,4 @@ With no key set, the callback skips quietly. Inside the containers the agent rea
 - **Load strategy is full-reprocess**, not incrementally extracted. Stats tables are loaded with `INSERT OR REPLACE`, and the shots table is emptied and reloaded in a single transaction on every run (with a versioned shot cache), so stale shots can't linger. Every run re-checks all cached data rather than only pulling genuinely new records.
 - **20 of 159,335 clutch shots** have no recorded shot location.
 - **Current-season handling isn't implemented** — there's no logic to distinguish an in-progress season from a completed one, so a season fetched mid-year would be cached as if final.
+- **Matchup data covers 2017-18 onward.** 2016-17 has only a small partial sample (about 3,500 rows, against 120,000 or more per later season), and earlier seasons have none, so `matchup_analysis` can't answer matchup questions before then.
