@@ -4,10 +4,11 @@ Run from the project root:
     streamlit run dashboard/app.py
 """
 
+import json
 import math
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import anthropic
@@ -591,6 +592,9 @@ with shots_tab:
 # The analyst agent from agent/analyst.py, behind a chat window.
 
 MAX_QUESTION_CHARS = 500
+ASK_LOG = (
+    ROOT / "agent" / "ask_log.jsonl"
+)  # one line per question asked here (gitignored)
 MAX_QUESTIONS = 20  # per browser session, so one visitor can't run up the API bill
 HISTORY_MESSAGES = (
     6  # the last few messages go along with each question, so follow-ups work
@@ -613,6 +617,29 @@ def step_line(step: int, name: str, tool_input: dict, output: str) -> str:
         return f"**Step {step}.** Read the table descriptions."
     status = "failed, retrying" if output.startswith("Query failed") else "done"
     return f"**Step {step}.** Ran a query ({status})."
+
+
+def log_question(question: str, reply: dict, result) -> None:
+    """Append one line per question, so questions that went badly can become eval cases.
+
+    result is the AgentResult, or None if Claude couldn't be reached.
+    """
+    record = {
+        "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "question": question,
+        "complete": bool(result and result.complete),
+        "stop_reason": result.stop_reason if result else "api_error",
+        "steps": result.steps if result else 0,
+        "seconds": round(result.seconds, 1) if result else 0,
+        "queries": len(reply.get("queries", [])),
+        "failed_queries": result.failed_queries if result else 0,
+        "answer": reply["content"][:2000],
+    }
+    try:
+        with ASK_LOG.open("a") as log:
+            log.write(json.dumps(record) + "\n")
+    except OSError:
+        pass  # logging must never break the chat
 
 
 def show_message(message: dict) -> None:
@@ -681,6 +708,7 @@ with ask_tab:
                 for m in chat[-HISTORY_MESSAGES:]
             ]
             queries: list[dict] = []
+            result = None
             with conversation:
                 show_message({"role": "user", "content": question})
                 with st.chat_message("assistant"):
@@ -732,6 +760,7 @@ with ask_tab:
                                     None if result.complete else result.stop_reason
                                 ),
                             }
+            log_question(question, reply, result)
             chat.extend([{"role": "user", "content": question}, reply])
             st.rerun()  # redraw the conversation with the finished answer in place
 

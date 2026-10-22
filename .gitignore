@@ -11,3 +11,4 @@ airflow/config/
 .env
 agent/pipeline_audit.jsonl
 agent/reports/
+agent/ask_log.jsonl
