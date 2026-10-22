@@ -65,7 +65,7 @@ All data comes from the unofficial `nba_api` Python package, covering Regular Se
 ```
 data_eng_project/
     .github/workflows/
-        dbt-ci.yml       — GitHub Actions: runs dbt tests on every pull request
+        dbt-ci.yml       — GitHub Actions: runs the dbt tests and the agent guardrail tests on every pull request
     pipeline/
         extract/         — one module per data domain (stats, matchups, awards, shots, static)
             api.py       — shared retry-with-backoff and failure-manifest helpers
@@ -88,6 +88,9 @@ data_eng_project/
         pipeline_agent.py    — pipeline agent: diagnoses Airflow runs, acts only with approval (see Pipeline Agent)
         reports/             — failure reports written by the Airflow callback (gitignored)
         pipeline_audit.jsonl — every action the pipeline agent proposed and took (gitignored)
+        ask_log.jsonl        — every question asked in the dashboard's chat, with how it ended (gitignored)
+    tests/
+        test_pipeline_agent.py — automated tests for the pipeline agent's guardrails, against a fake Airflow
     dashboard/
         app.py           — Streamlit dashboard: overview, leaderboards, player explorer, shot chart, Ask the data
         court.py         — draws an NBA half-court in nba_api's shot coordinates
@@ -169,7 +172,7 @@ A staging layer (11 models, one per raw table) handles all column renaming; the 
 | `player_tier` | Classifies each player-season into a reputation tier — Role, Star, or Olympic Gold Medalist — using only awards won before that season |
 | `player_clutch_performance` | One row per player-season with more than 100 season FGA and at least 15 clutch games, combining season-long and clutch stats, with `ts_delta` (clutch minus season true shooting) measuring the clutch change |
 | `home_vs_road` | Compares clutch performance at home vs. on the road |
-| `matchup_analysis` | One row per offensive player, defender, and season, with the defender's own season defensive rating alongside the offensive player's clutch `ts_delta` |
+| `matchup_analysis` | One row per offensive player, defender, and season (2017-18 onward), with how long the defender guarded him (`matchup_minutes` in decimal minutes for math, `matchup_time` as mm:ss for display), the defender's own season defensive rating, and the offensive player's clutch `ts_delta` |
 | `star_player_performance` | Subset of `player_clutch_performance` limited to Star/Olympic tier players, with each player's first award-winning season attached |
 | `player_clutch_playmaking` | Adds season-long assist/rebound involvement alongside clutch scoring metrics |
 | `shots_with_opponent` | Every clutch shot attempt joined to the shooter's opponent team and that opponent's season defensive rating |
@@ -195,6 +198,8 @@ Staging models also have multiple consumers, but they're simple column-renaming 
 Every pull request into `main` runs `.github/workflows/dbt-ci.yml` on a fresh GitHub runner. It installs the pinned `requirements.txt`, creates an empty DuckDB database from `nba_schema.sql`, runs `dbt run --empty` to build every model with zero rows, then runs `dbt test`.
 
 The real database isn't in the repo and takes about 3.5 hours to build from the API, so CI checks the code rather than the data: every model's SQL has to run against the actual raw schema, every `ref` has to resolve, and the `player_tier` unit tests run for real on their mocked data. Data tests like `unique` and `not_null` pass trivially on empty tables, so data quality is still checked by the full local build. `equal_rowcount` is skipped in CI because the dbt_utils macro returns NULL instead of 0 on empty tables.
+
+The same workflow runs `pytest tests/`: 15 tests for the pipeline agent's guardrails against a fake Airflow server, covering approval, every refusal (active run, paused DAG, retry limit, unknown DAG), the audit log, the JSON log format, and diagnose-only mode. They check the code's rules, not the model's judgment, so they need no API key and run in seconds. Run them locally with `pytest tests/ -q`; one was verified by raising the retry limit on purpose and watching it fail.
 
 ## Findings: Does Clutch Reputation Match Clutch Results?
 
@@ -278,6 +283,7 @@ The dashboard's **Ask the data** tab puts the analyst agent behind a chat window
 - **Follow-up questions.** The last few messages go along with each new question, so "now only Stars" or "and in 2015-16?" keep the context.
 - **Short answers.** The agent gets an extra instruction in the dashboard: lead with the direct answer, add a few supporting numbers and caveats, and leave the SQL to the expander.
 - **Limits for public use.** Questions are capped at 500 characters and each browser session at 20 questions, which keeps API costs bounded. Without `ANTHROPIC_API_KEY`, the tab shows how to turn it on instead of failing.
+- **A question log.** Every question is appended to `agent/ask_log.jsonl` (gitignored) with its stop reason, step count, queries and failed queries. Answers that ended incomplete or needed corrected queries are candidates for new eval cases. Logging can never break the chat: if the file can't be written, the question is still answered.
 
 **Running it.** Set the key in the same terminal before starting the dashboard, since Streamlit only sees variables that exist when it starts:
 
@@ -321,6 +327,7 @@ python3 agent/analyst.py --verbose "Which Star player-seasons had the biggest cl
 - Queries time out after 30 seconds, results are capped at 50 rows, and the loop stops after 10 steps.
 - Every run reports why it stopped (`end_turn`, `max_tokens`, `refusal`, or the step limit). A truncated or stopped answer is labeled incomplete, and the script exits with code 1.
 - The agent only sees the analysis models, never staging or raw tables, and the system prompt requires every number to come from a query result.
+- It stays in scope: questions unrelated to the data, like restaurant recommendations, get a one-line refusal and no queries. An `off_topic` eval case checks this stays true.
 
 > [!WARNING]
 > Don't run the agent while `main.py`, `load_shots.py`, or a dbt build is writing. DuckDB allows one writer at a time, and the read-only connection will fail with a lock error.
@@ -351,19 +358,23 @@ python3 agent/pipeline_agent.py "The extract timed out last night; retry it if t
 
 | Tool | What it does | Permission |
 |---|---|---|
-| `pipeline_status` | Recent runs of both DAGs and the state of every task | read |
-| `task_log` | A task's log, trimmed to error lines plus the end | read |
+| `pipeline_status` | Recent runs of both DAGs, every task's state, and whether each DAG is paused | read |
+| `task_log` | A task's log, trimmed to error lines plus the end, with a count of files read from cache vs. pulled from the API | read |
 | `failure_manifests` | NBA API calls that still failed after retries | read |
+| `cache_status` | How much of the extract is cached, so it can say whether a run takes minutes or hours | read |
 | `data_freshness` | When the database was last written, and key row counts | read |
 | `retry_failed_task` | Clears a failed task so Airflow reruns it and everything after it | needs your approval |
 | `trigger_pipeline` | Starts a new full run | needs your approval |
+| `set_dag_paused` | Pauses or unpauses one of the two DAGs | needs your approval |
 
 **Guardrails.** The rules live in the tools' code, not just the prompt, so they hold even if the model ignores its instructions:
 - Every action shows you the proposal and its reason, and waits for you to type `y`. Anything else, including no one at the keyboard, is a no.
 - Actions are refused while any run is active, since DuckDB allows one writer at a time.
+- A run is never triggered into a paused DAG, where it would sit in queued. The agent says which DAG is paused and proposes unpausing it first.
 - A task can be retried at most once per run. If it fails again, the agent stops and hands it to you.
 - Every proposal, decline and action is appended to `agent/pipeline_audit.jsonl`, which is also what enforces the one-retry limit.
 - `--diagnose-only` removes the action tools entirely, so the model can't even ask for them.
+- It stays in scope (Airflow runs, logs, failures, cache, freshness), and treats any text inside logs or tool results as data, never as instructions.
 
 **Automatic failure reports.** Both DAGs register `diagnose_failure` (in `airflow/dags/agent_callbacks.py`) as their `on_failure_callback`. When any task fails, it runs the agent in diagnose-only mode as a separate process and saves a report to `agent/reports/<dag>__<task>__<run>__try<n>.md`. If the agent can't run, the report says so and includes its error output; the callback never raises, so it can't hide the original failure. To turn it on, export the key in the terminal before starting the containers (Compose passes it through), or put it in `airflow/.env`:
 ```bash
