@@ -92,9 +92,11 @@ data_eng_project/
     tests/
         test_pipeline_agent.py — automated tests for the pipeline agent's guardrails, against a fake Airflow
     dashboard/
-        app.py           — Streamlit dashboard: overview, leaderboards, player explorer, shot chart, Ask the data
+        app.py           — Streamlit dashboard: overview, leaderboards, player explorer, shot chart, Ask the data, guide
         court.py         — draws an NBA half-court in nba_api's shot coordinates
         hexbin.py        — hexbin shot chart, with the glowing hot zones
+        zones.py         — zone shot chart for comparing one player's seasons, with animated zones
+        guide.py         — glossary, the Overview's "Explain this page" notes, chart hints and the Guide tab
         style.py         — colours, chart template and the scoreboard strip
     .streamlit/
         config.toml      — the dashboard's theme (fonts, colours)
@@ -248,7 +250,7 @@ those moved to Role, the Star decline grew from -0.0133 to -0.0153 (mean) and
 the ranking became consistent across mean and median.
 
 > [!NOTE]
-> **Caveats:** clutch samples are smaller than season samples by construction (15+ clutch games vs. 100+ season field-goal attempts), so individual player-season values are noisy — part of why Role's spread (0.135) is much wider than Star's (0.088). Player-seasons also aren't independent, since the same player appears in many seasons, so the standard errors above are likely optimistic.
+> **Caveats:** clutch samples are smaller than season samples by construction (15+ clutch games vs. more than 100 season field-goal attempts), so individual player-season values are noisy — part of why Role's spread (0.135) is much wider than Star's (0.088). Player-seasons also aren't independent, since the same player appears in many seasons, so the standard errors above are likely optimistic.
 
 ## Dashboard
 
@@ -260,17 +262,28 @@ the ranking became consistent across mean and median.
 streamlit run dashboard/app.py
 ```
 
-It opens at `localhost:8501` with five tabs:
+It opens at `localhost:8501` with six tabs. The sidebar filters (seasons, tiers, minimum clutch shot attempts) apply to every tab except Player explorer and Ask the data, so the dashboard always describes the same player-seasons.
 
-- **Overview:** the headline finding computed live, mean `ts_delta` by tier with 95% intervals, and the Findings table.
-- **Leaderboards:** the biggest clutch declines and improvements, filterable by tier and season, with a minimum clutch shot attempts slider. A scatter of `ts_delta` against clutch attempts shows why the minimum matters: small samples spread far from zero, and the spread narrows as attempts grow.
-- **Player explorer:** one player's full-season and clutch true shooting across their career, with each season colored by tier, so you can see the season a player's reputation starts.
-- **Shot chart:** all 159,315 located clutch shots on a half-court as a hexbin chart: hexagon size shows how many shots came from a spot, colour shows FG% against every clutch shot from the same spot, and the hottest zones glow. Spots with few shots are pulled toward the league average, so one lucky make can't paint a hot zone. A second view shows individual makes and misses.
-- - **Ask the data:** a chat with the analyst agent, with the SQL behind every answer (see [Ask the Data](#ask-the-data-the-analyst-in-the-dashboard)).
+- **Overview:** the headline finding computed live: mean `ts_delta` by tier with 95% intervals, the Findings table, the usage change, and a season-by-season trend. An **Explain this page** switch puts each part of the page in a numbered box with a short note on how to read it, built from the numbers currently on screen. For example, it states how many standard errors separate the tiers and what that means, so the notes stay correct when the filters change.
+- **Leaderboards:** the biggest clutch declines and improvements. A scatter of `ts_delta` against clutch attempts shows why the minimum clutch shot attempts filter matters: small samples spread far from zero, and the spread narrows as attempts grow.
+- **Player explorer:** one player's full-season and clutch true shooting across their career, with each season coloured by tier, so you can see the season a player's reputation starts.
+- **Shot chart:** all 159,315 located clutch shots on a half-court as a hexbin chart. Hexagon size shows how many shots came from a spot, colour shows FG% against every clutch shot from the same spot, and the hottest zones glow. Spots with few shots are pulled toward the league average, so one lucky make can't paint a hot zone. A second view shows individual makes and misses.
+  - **Comparing a player's seasons:** with one player picked, *Compare with* sets the baseline: the league, all of his other seasons, or one other season. One season has only a few clutch shots per hexagon, so season comparisons switch to five court zones (restricted area, paint, mid-range, corner three, above-the-break three), drawn from the same lines as the court. Each zone shows both field goal percentages and this season's makes and attempts, and a table adds each zone's share of his shots. The same adjustment applies: a zone with few shots is pulled toward the comparison, and the comparison toward the league. Where he took no shots in the comparison, the league's FG% from that zone stands in, and the hover says so.
+- **Ask the data:** a chat with the analyst agent, with the SQL behind every answer (see [Ask the Data](#ask-the-data-the-analyst-in-the-dashboard)).
+- **Guide:** what the dashboard asks, what each filter does and when to use it, what each tab shows, and a glossary (true shooting, `ts_delta`, usage, tiers, mean vs. median, error bars, and more). The sidebar's *How to read this* shows the key terms from the same glossary in `dashboard/guide.py`, so a definition is written once and can't drift between places.
 
 ![Clutch shot heatmap](docs/dashboard-shot-chart.png)
 
-The app reads DuckDB with a read-only connection and caches each query, so the database is read once per session and every filter runs in memory. Player-seasons (about 5,000 rows) and shots (about 160,000) are small enough to load whole; at a larger scale, the filtering would move into SQL. The **Reload data** button in the sidebar clears the cache after a new pipeline run. Like the agent, the dashboard can't open the database while the pipeline or a dbt build is writing to it, and it shows a message instead of crashing.
+**Help where it's needed.** Every filter and control has a tooltip. Charts that can be zoomed carry a hint above them: drag to zoom, double-click to zoom back out, click a legend entry to hide it, double-click to show only that one. Plotly's own tip only appears once per session. The shot charts can't be zoomed, so the court always shows the full half court.
+
+**Performance.** The app reads DuckDB with a read-only connection and caches each query, so the database is read once per session and every filter runs in memory. Player-seasons (about 5,000 rows) and shots (about 160,000) are small enough to load whole; at a larger scale, the filtering would move into SQL. A few changes keep the shot chart quick:
+
+- **Only the shot tab reruns.** The tab is a Streamlit fragment, so changing a player or season reruns that tab instead of the whole page.
+- **League numbers are computed once.** The league's zone numbers are cached.
+- **Smaller charting library.** The animated shot charts are small standalone pages that load Plotly's basic build (about 1.2 MB instead of 4.6 MB), pinned to the version of the installed `plotly` package.
+- **Charts wait until visible.** A chart built inside a hidden tab gets its text measured as zero size, which misplaced labels. So each shot chart draws once its tab is actually on screen, and its colour bar carries its labels in the tick text rather than a title.
+
+The **Reload data** button in the sidebar clears the cache after a new pipeline run. Like the agent, the dashboard can't open the database while the pipeline or a dbt build is writing to it, and it shows a message instead of crashing.
 
 ## Ask the Data: the Analyst in the Dashboard
 
@@ -391,9 +404,11 @@ With no key set, the callback skips quietly. Inside the containers the agent rea
 > These are known trade-offs, documented so the results can be read with the right level of confidence.
 
 - **Clutch uses the NBA's official definition everywhere:** the last 5 minutes of the 4th quarter or overtime, with the score within 5 points. Both the clutch stats (`LeagueDashPlayerClutch`) and the clutch shots (`ShotChartDetail`) request this definition from the API, and a dbt test checks that every player-season's shot count equals its official clutch field-goal attempts. An earlier version filtered shots by time only, which ignored the score and captured about six minutes instead of five; for LeBron James in 2015-16, that produced 205 "clutch" shots where the official count was 92.
-- **No minimum on clutch shot attempts.** A player-season qualifies with 15+ clutch games and 100+ season field-goal attempts, but some take very few clutch shots (as few as 7 among Stars), so the most extreme `ts_delta` values rest on tiny samples.
+- **No minimum on clutch shot attempts.** A player-season qualifies with 15+ clutch games and more than 100 season field-goal attempts, but some take very few clutch shots (as few as 7 among Stars), so the most extreme `ts_delta` values rest on tiny samples.
 - **Season range is hardcoded** to 2004-05 through 2025-26.
 - **Load strategy is full-reprocess**, not incrementally extracted. Stats tables are loaded with `INSERT OR REPLACE`, and the shots table is emptied and reloaded in a single transaction on every run (with a versioned shot cache), so stale shots can't linger. Every run re-checks all cached data rather than only pulling genuinely new records.
 - **20 of 159,335 clutch shots** have no recorded shot location.
 - **Current-season handling isn't implemented** — there's no logic to distinguish an in-progress season from a completed one, so a season fetched mid-year would be cached as if final.
 - **Matchup data covers 2017-18 onward.** 2016-17 has only a small partial sample (about 3,500 rows, against 120,000 or more per later season), and earlier seasons have none, so `matchup_analysis` can't answer matchup questions before then.
+- **Only qualifying seasons reach the dashboard.** `player_clutch_performance` keeps player-seasons with 15+ clutch games and more than 100 season field-goal attempts, and shots are only loaded for those seasons. So the Player explorer skips a player's non-qualifying seasons, and a season comparison on the Shot chart can only use qualifying seasons.
+- **Season comparisons are coarse by design.** Five court zones give each zone enough shots to compare, but they hide finer patterns (left vs. right side, for example), and a single season's zones can still rest on a handful of shots. The hover and the table show the raw makes and attempts behind every colour.

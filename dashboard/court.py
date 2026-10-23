@@ -67,6 +67,9 @@ def draw_court(fig: go.Figure) -> go.Figure:
     fig.update_layout(
         shapes=court_shapes(), height=620, margin=dict(l=10, r=10, t=40, b=10)
     )
-    fig.update_xaxes(range=X_RANGE, visible=False)
-    fig.update_yaxes(range=Y_RANGE, visible=False, scaleanchor="x", scaleratio=1)
+    # fixedrange: the court can't be zoomed or dragged, so it always shows the whole half court.
+    fig.update_xaxes(range=X_RANGE, visible=False, fixedrange=True)
+    fig.update_yaxes(
+        range=Y_RANGE, visible=False, scaleanchor="x", scaleratio=1, fixedrange=True
+    )
     return fig
