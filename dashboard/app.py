@@ -20,6 +20,20 @@ import streamlit as st
 
 from court import draw_court
 from hexbin import glowing_chart_html, hex_stats, hexbin_figure
+from zones import zone_chart_html, zone_counts, zone_figure, zone_stats
+from guide import (
+    GUIDE_CSS,
+    SIDEBAR_TERMS,
+    chart_hint,
+    chart_note,
+    glossary_markdown,
+    render_guide_tab,
+    scoreboard_note,
+    start_note,
+    table_note,
+    trend_note,
+    usage_note,
+)
 from style import (
     CSS,
     HOT_COLD,
@@ -48,6 +62,7 @@ MAX_SCATTER_POINTS = 5_000
 
 st.set_page_config(page_title="NBA Clutch Reputation", page_icon="🏀", layout="wide")
 st.markdown(CSS, unsafe_allow_html=True)
+st.markdown(GUIDE_CSS, unsafe_allow_html=True)
 
 
 # ------------------------------------------------------------------ data
@@ -74,6 +89,12 @@ def load_shots() -> pd.DataFrame:
             FROM shots_with_opponent
             WHERE loc_x IS NOT NULL AND loc_y IS NOT NULL
             """).df()
+
+
+@st.cache_data(show_spinner=False)
+def load_league_zones() -> pd.DataFrame:
+    """Attempts and makes per court zone for every clutch shot: the zone chart's league baseline."""
+    return zone_counts(load_shots())
 
 
 def tier_summary(df: pd.DataFrame) -> pd.DataFrame:
@@ -122,6 +143,7 @@ FILTER_DEFAULTS = {
 # --------------------------------------------------------------- sidebar
 # Filters here apply to every tab, so the whole dashboard always describes the same data.
 
+
 with st.sidebar:
     st.markdown(
         '<div class="brand">NBA Clutch Reputation</div>'
@@ -136,9 +158,16 @@ with st.sidebar:
         options=ALL_SEASONS,
         value=FILTER_DEFAULTS["f_seasons"],
         key="f_seasons",
+        help="Only include seasons in this range. Applies to every tab except Player explorer "
+        "and Ask the data.",
     )
     tiers = st.multiselect(
-        "Tiers", TIER_ORDER, default=FILTER_DEFAULTS["f_tiers"], key="f_tiers"
+        "Tiers",
+        TIER_ORDER,
+        default=FILTER_DEFAULTS["f_tiers"],
+        key="f_tiers",
+        help="Which reputation tiers to include. Star: a star-level NBA award before that season. "
+        "Olympic Gold Medalist: that plus an Olympic gold. Role: everyone else.",
     )
     min_fga = st.slider(
         "Minimum clutch shot attempts",
@@ -162,7 +191,11 @@ with st.sidebar:
     )
 
     reset_col, reload_col = st.columns(2)
-    if reset_col.button("Reset filters", width="stretch"):
+    if reset_col.button(
+        "Reset filters",
+        width="stretch",
+        help="Put every filter back to its default: all seasons, all tiers, no shot minimum.",
+    ):
         for key in FILTER_DEFAULTS:
             st.session_state.pop(key, None)
         st.rerun()
@@ -178,22 +211,13 @@ with st.sidebar:
         file_name="clutch_player_seasons.csv",
         mime="text/csv",
         width="stretch",
+        help="Download the player-seasons the filters currently select, as a CSV.",
     )
 
     with st.expander("How to read this"):
         st.markdown(
-            "**Clutch:** the last 5 minutes of the 4th quarter or overtime, with the score within 5 points "
-            "(the NBA's official definition).\n\n"
-            "**True shooting (TS%):** scoring efficiency that counts threes and free throws, not just "
-            "field goals.\n\n"
-            "**ts_delta:** clutch TS% minus full-season TS%. Negative means the player shot worse in the "
-            "clutch. Shown in percentage points on the scoreboard.\n\n"
-            "**Usage:** the share of a team's possessions a player finishes while on the floor.\n\n"
-            "**Tiers:** Star means the player won a star-level NBA award before that season. Olympic "
-            "Gold Medalist means a star-level NBA award plus an Olympic gold. Everyone else is Role. "
-            "Awards only count from the season after they're won.\n\n"
-            "**Qualifying player-season:** at least 15 clutch games and more than 100 season field goal "
-            "attempts."
+            glossary_markdown(SIDEBAR_TERMS)
+            + "\n\nThe **Guide** tab explains every filter and tab, with the full glossary."
         )
 
     built = datetime.fromtimestamp(DB_PATH.stat().st_mtime)
@@ -214,8 +238,15 @@ if filtered.empty:
     )
     st.stop()
 
-overview_tab, leaderboard_tab, player_tab, shots_tab, ask_tab = st.tabs(
-    ["Overview", "Leaderboards", "Player explorer", "Shot chart", "Ask the data"]
+overview_tab, leaderboard_tab, player_tab, shots_tab, ask_tab, guide_tab = st.tabs(
+    [
+        "Overview",
+        "Leaderboards",
+        "Player explorer",
+        "Shot chart",
+        "Ask the data",
+        "Guide",
+    ]
 )
 
 
@@ -223,19 +254,39 @@ overview_tab, leaderboard_tab, player_tab, shots_tab, ask_tab = st.tabs(
 
 with overview_tab:
     summary = tier_summary(filtered)
-    st.markdown(scoreboard_html(summary), unsafe_allow_html=True)
-
-    worst = summary.loc[summary["mean_ts_delta"].idxmin()]
-    everyone_declines = (summary["mean_ts_delta"] < 0).all()
-    lead = "Every tier shoots worse in the clutch, and " if everyone_declines else ""
-    st.markdown(
-        f"**{lead}{TIER_PLURALS[worst.group_tier]} drop the most.** "
-        "Numbers are the mean change in true shooting from the full season to the clutch, "
-        "in percentage points."
+    explain = st.toggle(
+        "Explain this page",
+        key="explain_overview",
+        help="Puts each part of the page in a numbered box with a short note on how to read it.",
     )
 
+    def part(step: int):
+        """A box for one explained part of the page: bordered only while Explain this page is on."""
+        return st.container(border=explain, key=f"guide-{step}")
+
+    if explain:
+        st.markdown(start_note(summary), unsafe_allow_html=True)
+
+    with part(1):
+        if explain:
+            st.markdown(scoreboard_note(summary), unsafe_allow_html=True)
+        st.markdown(scoreboard_html(summary), unsafe_allow_html=True)
+
+        worst = summary.loc[summary["mean_ts_delta"].idxmin()]
+        everyone_declines = (summary["mean_ts_delta"] < 0).all()
+        lead = (
+            "Every tier shoots worse in the clutch, and " if everyone_declines else ""
+        )
+        st.markdown(
+            f"**{lead}{TIER_PLURALS[worst.group_tier]} drop the most.** "
+            "Numbers are the mean change in true shooting from the full season to the clutch, "
+            "in percentage points."
+        )
+
     chart_col, table_col = st.columns([3, 2])
-    with chart_col:
+    with chart_col, part(2):
+        if explain:
+            st.markdown(chart_note(summary), unsafe_allow_html=True)
         fig = px.bar(
             summary,
             x="group_tier",
@@ -259,68 +310,88 @@ with overview_tab:
         )
 
     with table_col:
-        st.subheader("Findings by tier")
-        st.dataframe(
-            summary.drop(columns="ci95"),
-            hide_index=True,
-            width="stretch",
-            column_config={
-                "group_tier": "Tier",
-                "n": st.column_config.NumberColumn("N", format="%d"),
-                "mean_ts_delta": st.column_config.NumberColumn(
-                    "Mean ts_delta", format="%.4f"
-                ),
-                "median_ts_delta": st.column_config.NumberColumn(
-                    "Median", format="%.3f"
-                ),
-                "std_ts_delta": st.column_config.NumberColumn("Std dev", format="%.3f"),
-                "mean_usg_delta": st.column_config.NumberColumn(
-                    "Mean usg_delta", format="%+.4f"
-                ),
-            },
-        )
-        st.markdown(
-            f"**Usage tells the how.** {TIER_PLURALS[worst.group_tier]} change their usage by "
-            f"{worst.mean_usg_delta * 100:+.1f} points in the clutch. A positive number means they take "
-            "on more of the offense even as their efficiency falls."
-        )
+        with part(3):
+            if explain:
+                st.markdown(table_note(summary), unsafe_allow_html=True)
+            st.subheader("Findings by tier")
+            st.dataframe(
+                summary.drop(columns="ci95"),
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "group_tier": "Tier",
+                    "n": st.column_config.NumberColumn("N", format="%d"),
+                    "mean_ts_delta": st.column_config.NumberColumn(
+                        "Mean ts_delta", format="%.4f"
+                    ),
+                    "median_ts_delta": st.column_config.NumberColumn(
+                        "Median", format="%.3f"
+                    ),
+                    "std_ts_delta": st.column_config.NumberColumn(
+                        "Std dev", format="%.3f"
+                    ),
+                    "mean_usg_delta": st.column_config.NumberColumn(
+                        "Mean usg_delta", format="%+.4f"
+                    ),
+                },
+            )
+        with part(4):
+            if explain:
+                st.markdown(usage_note(summary), unsafe_allow_html=True)
+            st.markdown(
+                f"**Usage tells the how.** {TIER_PLURALS[worst.group_tier]} change their usage by "
+                f"{worst.mean_usg_delta * 100:+.1f} points in the clutch. A positive number means they take "
+                "on more of the offense even as their efficiency falls."
+            )
 
-    st.subheader("Season by season")
     by_season = (
         filtered.groupby(["season", "group_tier"])["ts_delta"]
         .agg(n="size", mean_ts_delta="mean")
         .reset_index()
     )
     by_season = by_season[by_season["n"] >= MIN_TIER_SEASON]
-    trend = px.line(
-        by_season,
-        x="season",
-        y="mean_ts_delta",
-        color="group_tier",
-        color_discrete_map=TIER_COLOURS,
-        category_orders={"group_tier": TIER_ORDER, "season": ALL_SEASONS},
-        markers=True,
-        hover_data={"n": True},
-        labels={
-            "season": "Season",
-            "mean_ts_delta": "Mean ts_delta",
-            "group_tier": "Tier",
-            "n": "Player-seasons",
-        },
-        title="Mean clutch change in true shooting, by season",
-    )
-    trend.add_hline(y=0, line_color=LINE, line_width=1)
-    trend.update_layout(
-        legend=dict(
-            orientation="h", y=1.02, yanchor="bottom", x=1, xanchor="right", title=None
+    with part(5):
+        if explain:
+            st.markdown(
+                trend_note(by_season, summary, MIN_TIER_SEASON), unsafe_allow_html=True
+            )
+        st.subheader("Season by season")
+        trend = px.line(
+            by_season,
+            x="season",
+            y="mean_ts_delta",
+            color="group_tier",
+            color_discrete_map=TIER_COLOURS,
+            category_orders={"group_tier": TIER_ORDER, "season": ALL_SEASONS},
+            markers=True,
+            hover_data={"n": True},
+            labels={
+                "season": "Season",
+                "mean_ts_delta": "Mean ts_delta",
+                "group_tier": "Tier",
+                "n": "Player-seasons",
+            },
+            title="Mean clutch change in true shooting, by season",
         )
-    )
-    st.plotly_chart(trend, width="stretch", theme=None, config=PLOTLY_CONFIG)
-    st.caption(
-        f"A tier only gets a point in seasons where it has at least {MIN_TIER_SEASON} player-seasons, "
-        "so single seasons with tiny groups don't swing the line. Year-to-year jumps are mostly noise; "
-        "look for whether one tier sits below the others most seasons."
-    )
+        trend.add_hline(y=0, line_color=LINE, line_width=1)
+        trend.update_layout(
+            xaxis_type="category",  # seasons like "2004-05" otherwise get read as dates
+            legend=dict(
+                orientation="h",
+                y=1.02,
+                yanchor="bottom",
+                x=1,
+                xanchor="right",
+                title=None,
+            ),
+        )
+        st.markdown(chart_hint("a tier"), unsafe_allow_html=True)
+        st.plotly_chart(trend, width="stretch", theme=None, config=PLOTLY_CONFIG)
+        st.caption(
+            f"A tier only gets a point in seasons where it has at least {MIN_TIER_SEASON} player-seasons, "
+            "so single seasons with tiny groups don't swing the line. Year-to-year jumps are mostly noise; "
+            "look for whether one tier sits below the others most seasons."
+        )
 
 
 # ---------------------------------------------------------- leaderboards
@@ -329,9 +400,20 @@ with leaderboard_tab:
     st.subheader("Biggest clutch swings")
     option_1, option_2 = st.columns(2)
     direction = option_1.radio(
-        "Show", ["Biggest declines", "Biggest improvements"], horizontal=True
+        "Show",
+        ["Biggest declines", "Biggest improvements"],
+        horizontal=True,
+        help="Biggest declines: player-seasons that shot much worse in the clutch than over the "
+        "season. Biggest improvements: much better. Each row is one player in one season.",
     )
-    top_n = option_2.slider("Rows", min_value=5, max_value=50, value=15, step=5)
+    top_n = option_2.slider(
+        "Rows",
+        min_value=5,
+        max_value=50,
+        value=15,
+        step=5,
+        help="How many player-seasons to list.",
+    )
 
     if min_fga < 20:
         st.caption(
@@ -388,6 +470,7 @@ with leaderboard_tab:
     )
     scatter.add_vline(x=max(min_fga, 1), line_dash="dash", line_color=MUTED)
     scatter.add_hline(y=0, line_color=LINE, line_width=1)
+    st.markdown(chart_hint("a tier"), unsafe_allow_html=True)
     st.plotly_chart(scatter, width="stretch", theme=None, config=PLOTLY_CONFIG)
     st.caption(
         "Player-seasons with few clutch shots spread far above and below zero; the spread narrows "
@@ -420,7 +503,7 @@ with player_tab:
         players["player_id"].tolist(),
         index=default_index,
         format_func=labels.get,
-        help="Only qualifying seasons appear: 15+ clutch games and 100+ season field goal attempts.",
+        help="Only qualifying seasons appear: 15+ clutch games and more than 100 season field goal attempts.",
     )
 
     career = seasons_df[seasons_df["player_id"] == player_id].sort_values("season")
@@ -436,6 +519,7 @@ with player_tab:
         star_seasons["season"].iloc[0] if len(star_seasons) else "None",
     )
 
+    st.markdown(chart_hint("a line"), unsafe_allow_html=True)
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
@@ -469,6 +553,7 @@ with player_tab:
         title=f"{name}: true shooting, full season vs. clutch",
         yaxis_title="True shooting %",
         xaxis_title="Season",
+        xaxis_type="category",  # seasons like "2004-05" otherwise get read as dates
         hovermode="x unified",
     )
     st.plotly_chart(fig, width="stretch", theme=None, config=PLOTLY_CONFIG)
@@ -508,7 +593,10 @@ with player_tab:
 
 # ------------------------------------------------------------ shot chart
 
-with shots_tab:
+
+@st.fragment
+def shot_chart_tab(filtered: pd.DataFrame) -> None:
+    """The Shot chart tab. A fragment, so its own controls rerun only this tab, not the whole page."""
     shots_df = load_shots()
     # Keep only shots from the player-seasons the sidebar currently selects.
     selected = shots_df.merge(
@@ -516,21 +604,160 @@ with shots_tab:
     )
 
     option_1, option_2 = st.columns(2)
-    view = option_1.radio("View", ["Shot chart", "Makes and misses"], horizontal=True)
+    view = option_1.radio(
+        "View",
+        ["Shot chart", "Makes and misses"],
+        horizontal=True,
+        help="Shot chart: hexagons sized by how many shots came from each spot and coloured by "
+        "how well they fell. Makes and misses: every shot as its own dot.",
+    )
     shooter_options = ["All players"] + sorted(selected["player_name"].unique())
-    shooter = option_2.selectbox("Player", shooter_options, key="shooter")
+    shooter = option_2.selectbox(
+        "Player",
+        shooter_options,
+        key="shooter",
+        help="Pick one player to compare his seasons, or keep All players for everyone the "
+        "sidebar selects.",
+    )
     if shooter != "All players":
         selected = selected[selected["player_name"] == shooter]
+
+    # One player's shot chart can be compared with the league, all his other seasons, or one other season.
+    baseline, baseline_label, compare_season, vs_text = (
+        shots_df,
+        "League",
+        None,
+        "the league",
+    )
+    if view == "Shot chart" and shooter != "All players" and not selected.empty:
+        player_seasons = sorted(selected["season"].unique(), reverse=True)
+        option_3, option_4, option_5 = st.columns([2, 1, 1])
+        compare = option_3.radio(
+            "Compare with",
+            ["League", "Other seasons", "One season"],
+            horizontal=True,
+            help="Other seasons: one season against all of this player's other seasons in the sidebar range. "
+            "One season: one season against another single season.",
+        )
+        if compare != "League":
+            if len(player_seasons) < 2:
+                option_4.info(
+                    "Only one of this player's seasons is in the sidebar range, so there's nothing to "
+                    "compare with. Showing the league comparison instead."
+                )
+            else:
+                compare_season = option_4.selectbox(
+                    "Season",
+                    player_seasons,
+                    help="The season to show on the court.",
+                )
+                others = selected[selected["season"] != compare_season]
+                if compare == "Other seasons":
+                    baseline, baseline_label, vs_text = (
+                        others,
+                        "Other seasons",
+                        "other seasons",
+                    )
+                else:
+                    versus = option_5.selectbox(
+                        "Compared with",
+                        [
+                            season
+                            for season in player_seasons
+                            if season != compare_season
+                        ],
+                        help="The season to compare it with, zone by zone.",
+                    )
+                    baseline, baseline_label, vs_text = (
+                        others[others["season"] == versus],
+                        versus,
+                        versus,
+                    )
+                selected = selected[selected["season"] == compare_season]
 
     if selected.empty:
         st.warning("No shots match these filters.")
     else:
+        fg_pct = selected["shot_made_flag"].mean()
+        fg_delta = None
+        if compare_season:
+            fg_delta = f"{(fg_pct - baseline['shot_made_flag'].mean()) * 100:+.1f} pts vs {vs_text}"
         shot_1, shot_2, shot_3 = st.columns(3)
         shot_1.metric("Clutch shots", f"{len(selected):,}")
         shot_2.metric("Made", f"{int(selected['shot_made_flag'].sum()):,}")
-        shot_3.metric("Field goal %", f"{selected['shot_made_flag'].mean():.1%}")
+        shot_3.metric("Field goal %", f"{fg_pct:.1%}", delta=fg_delta)
 
-        if view == "Shot chart":
+        if view == "Shot chart" and compare_season:
+            # One season's hexagons are mostly 0 to 2 shots, so seasons are compared zone by zone.
+            stats = zone_stats(selected, baseline, load_league_zones())
+            fig, order, hot = zone_figure(stats, HOT_COLD, baseline_label, NAVY)
+            fig.update_layout(
+                title=f"{shooter}, {compare_season}: clutch shots vs. {vs_text}"
+            )
+            # Its own small page, like the hexagons, so the zones can animate in and hot zones pulse.
+            st.iframe(
+                zone_chart_html(
+                    draw_court(fig), order, hot, PLOTLY_CONFIG, NAVY, height=620
+                ),
+                height=640,
+            )
+            st.dataframe(
+                stats[
+                    [
+                        "zone",
+                        "makes",
+                        "attempts",
+                        "fg",
+                        "share",
+                        "base_makes",
+                        "base_attempts",
+                        "base_fg_raw",
+                        "base_share",
+                    ]
+                ],
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "zone": "Zone",
+                    "makes": st.column_config.NumberColumn(
+                        f"{compare_season} made", format="%d"
+                    ),
+                    "attempts": st.column_config.NumberColumn(
+                        f"{compare_season} shots", format="%d"
+                    ),
+                    "fg": st.column_config.NumberColumn(
+                        f"{compare_season} FG%", format="percent"
+                    ),
+                    "share": st.column_config.NumberColumn(
+                        "Share of his shots", format="percent"
+                    ),
+                    "base_makes": st.column_config.NumberColumn(
+                        f"{baseline_label} made", format="%d"
+                    ),
+                    "base_attempts": st.column_config.NumberColumn(
+                        f"{baseline_label} shots", format="%d"
+                    ),
+                    "base_fg_raw": st.column_config.NumberColumn(
+                        f"{baseline_label} FG%", format="percent"
+                    ),
+                    "base_share": st.column_config.NumberColumn(
+                        f"{baseline_label} share", format="percent"
+                    ),
+                },
+            )
+            compared_with = (
+                f"{shooter}'s other seasons in the sidebar range"
+                if baseline_label == "Other seasons"
+                else f"{shooter}'s {vs_text} season"
+            )
+            st.caption(
+                f"Each zone compares {compare_season} with {compared_with}: orange is better, blue worse. "
+                "Labels show field goal % for both, then this season's makes and attempts; share of shots shows "
+                "where he shot from. Colour is adjusted the same way as the hexagons: a zone with only a few shots "
+                "is pulled toward the comparison, and the comparison toward the league, so a lucky streak can't "
+                "paint it hot. Corner threes are in the table and the hover."
+            )
+        elif view == "Shot chart":
             # Comparing the whole league with itself would colour everything "even", so then show raw FG%.
             relative = len(selected) < len(shots_df)
             stats = hex_stats(selected, shots_df)
@@ -582,10 +809,15 @@ with shots_tab:
                         hovertemplate="%{customdata[0]}<br>%{customdata[1]}<extra></extra>",
                     )
                 )
+            st.markdown(chart_hint("Make or Miss", zoom=False), unsafe_allow_html=True)
             fig.update_layout(title="Clutch makes and misses")
             st.plotly_chart(
                 draw_court(fig), width="stretch", theme=None, config=PLOTLY_CONFIG
             )
+
+
+with shots_tab:
+    shot_chart_tab(filtered)
 
 
 # ---------------------------------------------------------- ask the data
@@ -686,7 +918,11 @@ with ask_tab:
             for column, example in zip(
                 st.columns(len(EXAMPLE_QUESTIONS)), EXAMPLE_QUESTIONS
             ):
-                if column.button(example, width="stretch"):
+                if column.button(
+                    example,
+                    width="stretch",
+                    help="Ask this question. Every SQL query used to answer it is shown under the answer.",
+                ):
                     st.session_state["example_question"] = example
                     st.rerun()
 
@@ -764,6 +1000,15 @@ with ask_tab:
             chat.extend([{"role": "user", "content": question}, reply])
             st.rerun()  # redraw the conversation with the finished answer in place
 
-        if chat and st.button("Clear conversation"):
+        if chat and st.button(
+            "Clear conversation", help="Remove the conversation and start fresh."
+        ):
             st.session_state["chat"] = []
             st.rerun()
+
+
+# ------------------------------------------------------------------ guide
+
+
+with guide_tab:
+    render_guide_tab(st)

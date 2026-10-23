@@ -49,7 +49,6 @@ pio.templates["broadcast"] = go.layout.Template(
             bordercolor=LINE,
             font=dict(family="Barlow, sans-serif", color=TEXT),
         ),
-        legend=dict(bgcolor="rgba(0,0,0,0)"),
         margin=dict(l=10, r=10, t=50, b=10),
     )
 )
