@@ -66,3 +66,122 @@ unit_tests:
     expect:
       rows:
         - {player_id: 404, season: '2015-16', group_tier: 'Role'}
+
+  - name: test_player_tier_only_star_level_awards_count
+    description: >
+      Only star-level awards make a player a Star. An award outside the list
+      (Rookie of the Year) leaves him Role; an All-Star MVP counts from the
+      next season.
+    model: player_tier
+    given:
+      - input: ref('stg_player_awards')
+        rows:
+          - {player_id: 505, season: '2010-11', award: 'NBA Rookie of the Year'}
+          - {player_id: 606, season: '2014-15', award: 'NBA All-Star Most Valuable Player'}
+      - input: ref('stg_player_advanced_stats')
+        rows:
+          - {player_id: 505, season: '2010-11'}
+          - {player_id: 505, season: '2011-12'}
+          - {player_id: 606, season: '2014-15'}
+          - {player_id: 606, season: '2015-16'}
+    expect:
+      rows:
+        - {player_id: 505, season: '2010-11', group_tier: 'Role'}
+        - {player_id: 505, season: '2011-12', group_tier: 'Role'}
+        - {player_id: 606, season: '2014-15', group_tier: 'Role'}
+        - {player_id: 606, season: '2015-16', group_tier: 'Star'}
+
+  - name: test_player_clutch_performance_qualifying_rules_and_ts_delta
+    description: >
+      A player-season qualifies with more than 100 season field goal attempts
+      (100 is out, 101 is in) and at least 15 clutch games (14 is out, 15 is
+      in). ts_delta is clutch minus season, so negative means worse in the
+      clutch. Values like 0.25 and 0.5 keep the arithmetic exact.
+    model: player_clutch_performance
+    given:
+      - input: ref('stg_player_advanced_stats')
+        rows:
+          - {player_id: 1, season: '2015-16', true_shooting_pct: 0.5, usage_pct: 0.25}
+          - {player_id: 2, season: '2015-16', true_shooting_pct: 0.5, usage_pct: 0.25}
+          - {player_id: 3, season: '2015-16', true_shooting_pct: 0.5, usage_pct: 0.25}
+          - {player_id: 4, season: '2015-16', true_shooting_pct: 0.25, usage_pct: 0.25}
+      - input: ref('stg_player_basic_stats')
+        rows:
+          - {player_id: 1, season: '2015-16', field_goals_attempted: 100}
+          - {player_id: 2, season: '2015-16', field_goals_attempted: 101}
+          - {player_id: 3, season: '2015-16', field_goals_attempted: 300}
+          - {player_id: 4, season: '2015-16', field_goals_attempted: 300}
+      - input: ref('player_tier')
+        rows:
+          - {player_id: 1, season: '2015-16', group_tier: 'Role'}
+          - {player_id: 2, season: '2015-16', group_tier: 'Role'}
+          - {player_id: 3, season: '2015-16', group_tier: 'Role'}
+          - {player_id: 4, season: '2015-16', group_tier: 'Role'}
+      - input: ref('stg_clutch_advanced_stats')
+        rows:
+          - {player_id: 1, season: '2015-16', games_played: 20, true_shooting_pct: 0.5, usage_pct: 0.25}
+          - {player_id: 2, season: '2015-16', games_played: 20, true_shooting_pct: 0.25, usage_pct: 0.25}
+          - {player_id: 3, season: '2015-16', games_played: 14, true_shooting_pct: 0.5, usage_pct: 0.25}
+          - {player_id: 4, season: '2015-16', games_played: 15, true_shooting_pct: 0.5, usage_pct: 0.25}
+      - input: ref('stg_players')
+        rows:
+          - {player_id: 1, player_name: 'Player A'}
+          - {player_id: 2, player_name: 'Player B'}
+          - {player_id: 3, player_name: 'Player C'}
+          - {player_id: 4, player_name: 'Player D'}
+    expect:
+      rows:
+        - {player_id: 2, season: '2015-16', ts_delta: -0.25}
+        - {player_id: 4, season: '2015-16', ts_delta: 0.25}
+
+  - name: test_team_abv_lookup_maps_historical_codes
+    description: >
+      Old team codes (NJN, SEA) map to the same franchise team_id as today's
+      (BKN, OKC), so shots from those seasons still join. A code that appears
+      several times comes out once, so the lookup never duplicates a shot.
+    model: team_abv_lookup
+    given:
+      - input: ref('stg_player_advanced_stats')
+        rows:
+          - {team_abv: 'NJN', team_id: 51}
+          - {team_abv: 'BKN', team_id: 51}
+          - {team_abv: 'BKN', team_id: 51}
+          - {team_abv: 'SEA', team_id: 60}
+      - input: ref('stg_teams')
+        rows:
+          - {team_abv: 'BKN', team_id: 51}
+          - {team_abv: 'OKC', team_id: 60}
+    expect:
+      rows:
+        - {team_abv: 'NJN', team_id: 51}
+        - {team_abv: 'BKN', team_id: 51}
+        - {team_abv: 'SEA', team_id: 60}
+        - {team_abv: 'OKC', team_id: 60}
+
+  - name: test_shots_with_opponent_picks_the_other_team
+    description: >
+      A shot's opponent is the other team in the game: a home-team shooter
+      faces the visitor, and a visiting shooter faces the home team. The
+      opponent's defensive rating comes along with it.
+    model: shots_with_opponent
+    given:
+      - input: ref('stg_clutch_shots')
+        rows:
+          - {shot_id: 1, player_id: 7, season: '2015-16', team_id: 1, home_team_abv: 'AAA', visitor_team_abv: 'BBB'}
+          - {shot_id: 2, player_id: 8, season: '2015-16', team_id: 2, home_team_abv: 'AAA', visitor_team_abv: 'BBB'}
+      - input: ref('team_abv_lookup')
+        rows:
+          - {team_abv: 'AAA', team_id: 1}
+          - {team_abv: 'BBB', team_id: 2}
+      - input: ref('stg_team_def_ratings')
+        rows:
+          - {team_id: 1, season: '2015-16', defensive_rating: 105.0}
+          - {team_id: 2, season: '2015-16', defensive_rating: 110.0}
+      - input: ref('player_clutch_performance')
+        rows:
+          - {player_id: 7, season: '2015-16', ts_delta: -0.25, group_tier: 'Role'}
+          - {player_id: 8, season: '2015-16', ts_delta: 0.25, group_tier: 'Star'}
+    expect:
+      rows:
+        - {shot_id: 1, opponent_team_id: 2, defensive_rating: 110.0}
+        - {shot_id: 2, opponent_team_id: 1, defensive_rating: 105.0}
