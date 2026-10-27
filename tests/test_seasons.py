@@ -8,8 +8,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipeline"))
 from seasons import (  # type: ignore # noqa: E402
     all_seasons,
+    awards_file_is_current,
     cached_file_is_final,
     current_season,
+    recent_seasons,
     season_label,
     season_over,
 )
@@ -70,3 +72,24 @@ def test_file_written_during_the_season_is_fetched_again(tmp_path):
 def test_current_season_is_never_final(tmp_path):
     path = _file_written_on(tmp_path / "c.parquet", date(2026, 10, 27))
     assert not cached_file_is_final(path, "2026-27")
+
+
+def test_recent_seasons_are_this_one_and_the_last():
+    assert recent_seasons(date(2026, 10, 27)) == {"2026-27", "2025-26"}
+
+
+def test_awards_written_this_season_are_current(tmp_path):
+    path = _file_written_on(tmp_path / "d.parquet", date(2026, 10, 2))
+    assert awards_file_is_current(path, today=date(2026, 10, 27))
+
+
+def test_awards_written_before_this_season_are_refetched(tmp_path):
+    # Written September 16, before this season began on October 1: refetched once
+    path = _file_written_on(tmp_path / "e.parquet", date(2026, 9, 16))
+    assert not awards_file_is_current(path, today=date(2026, 10, 27))
+
+
+def test_awards_written_last_season_go_stale_next_october(tmp_path):
+    path = _file_written_on(tmp_path / "f.parquet", date(2026, 10, 2))
+    assert awards_file_is_current(path, today=date(2027, 9, 30))
+    assert not awards_file_is_current(path, today=date(2027, 10, 1))

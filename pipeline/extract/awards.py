@@ -2,6 +2,7 @@ import pandas as pd
 import time
 from pathlib import Path
 from paths import cached_data_dir
+from seasons import awards_file_is_current, recent_seasons
 from extract.api import RETRYABLE_ERRORS, fetch_with_retry, raise_if_failures
 from nba_api.stats.endpoints import PlayerAwards
 
@@ -17,17 +18,22 @@ def extract_all_player_awards(
     table: pd.DataFrame, column: str, file_name: str
 ) -> pd.DataFrame:
     player_ids = get_unique_player_ids(table, column)
+    # Only players from the current or last season can win new awards; everyone else's file is final
+    active_ids = set(table.loc[table["SEASON"].isin(recent_seasons()), column])
     all_player_data = []
     path_dir = cached_data_dir / "awards"
     path_dir.mkdir(parents=True, exist_ok=True)
     failures = []
     for player_id in player_ids:
         file_path = path_dir / f"{file_name}_{player_id}.parquet"
-        if (file_path).exists():
+        if file_path.exists() and (
+            player_id not in active_ids or awards_file_is_current(file_path)
+        ):
             print(f"{player_id} file already there")
             df = pd.read_parquet(file_path)
         else:
             try:
+                # Not cached yet, or an active player whose file predates this season
                 print(f"Pulling {player_id} now")
                 df = fetch_with_retry(player_awards_table, player_id)
                 df.to_parquet(file_path, index=False)

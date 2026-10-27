@@ -51,3 +51,22 @@ def cached_file_is_final(path: Path, season: str) -> bool:
         return False
     written = date.fromtimestamp(path.stat().st_mtime)
     return written >= season_over(season)
+
+
+def recent_seasons(today: date | None = None) -> set[str]:
+    """The current season and the one before it: players in these can still win new awards."""
+    start = current_season_start(today)
+    return {season_label(start), season_label(start - 1)}
+
+
+def awards_file_is_current(path: Path, today: date | None = None) -> bool:
+    """True if an active player's cached awards already hold every award that counts this season.
+
+    A tier counts awards from the season after they're won, so this season's tiers need every award
+    from before it started: the All-Star and All-NBA selections and any Olympic gold. A file written
+    on or after October 1 of the current season has them all.
+    """
+    if not path.exists():
+        return False
+    cutoff = date(current_season_start(today), NEW_SEASON_MONTH, 1)
+    return date.fromtimestamp(path.stat().st_mtime) >= cutoff
