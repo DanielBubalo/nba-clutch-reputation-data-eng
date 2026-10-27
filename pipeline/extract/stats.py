@@ -11,10 +11,13 @@ from nba_api.stats.endpoints import (
 )
 
 
-# Collects the data from the tables below and loops through every season
-def extract_all_seasons(table, file_name: str) -> pd.DataFrame:
+# Collects the data from the tables below and loops through every season.
+# Returns the data and the seasons that were fetched from the API this run (not from the cache),
+# so the load can replace just those.
+def extract_all_seasons(table, file_name: str) -> tuple[pd.DataFrame, list[str]]:
     seasons = all_seasons()
     all_season_data = []
+    fetched = []
     path_dir = cached_data_dir / "seasons"
     path_dir.mkdir(parents=True, exist_ok=True)
     failures = []
@@ -29,6 +32,7 @@ def extract_all_seasons(table, file_name: str) -> pd.DataFrame:
                 print(f"Pulling {season} now")
                 df = fetch_with_retry(table, season)
                 df.to_parquet(file_path, index=False)
+                fetched.append(season)
                 time.sleep(0.5)
             except RETRYABLE_ERRORS as error:
                 print(f"Error pulling {season}: {type(error).__name__}")
@@ -37,7 +41,7 @@ def extract_all_seasons(table, file_name: str) -> pd.DataFrame:
         all_season_data.append(df)
     raise_if_failures(failures, file_name)
     result = pd.concat(all_season_data)
-    return result
+    return result, fetched
 
 
 # Extracts data from the leaguedashplayerstats endpoint (advanced season stats), per given season
