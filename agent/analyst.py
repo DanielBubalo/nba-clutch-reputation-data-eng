@@ -5,6 +5,7 @@ Usage (from the project root):
 """
 
 import json
+import os
 import sys
 import threading
 import time
@@ -12,16 +13,17 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import anthropic
+import anthropic  # type: ignore
 import duckdb
-from rich.console import Console
-from rich.markdown import Markdown
-from rich.markup import escape
-from rich.panel import Panel
-from rich.syntax import Syntax
+from rich.console import Console  # type: ignore
+from rich.markdown import Markdown  # type: ignore
+from rich.markup import escape  # type: ignore
+from rich.panel import Panel  # type: ignore
+from rich.syntax import Syntax  # type: ignore
 
 ROOT = Path(__file__).resolve().parents[1]
-DB_PATH = ROOT / "nba_clutch.duckdb"
+# The same NBA_DB_PATH setting as the pipeline and dbt, so every part reads the same database.
+DB_PATH = Path(os.environ.get("NBA_DB_PATH", ROOT / "nba_clutch.duckdb")).resolve()
 MANIFEST_PATH = ROOT / "dbt" / "target" / "manifest.json"
 MAX_ROWS = 50
 MAX_STEPS = 10
