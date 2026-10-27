@@ -2,6 +2,7 @@ import pandas as pd
 import time
 from pathlib import Path
 from paths import cached_data_dir
+from seasons import all_seasons
 from extract.api import RETRYABLE_ERRORS, fetch_with_retry, raise_if_failures
 from nba_api.stats.endpoints import (
     leaguedashplayerstats,
@@ -12,7 +13,7 @@ from nba_api.stats.endpoints import (
 
 # Collects the data from the tables below and loops through every season
 def extract_all_seasons(table, file_name: str) -> pd.DataFrame:
-    seasons = [f"{str(season)}-{str(season + 1)[-2:]}" for season in range(2004, 2026)]
+    seasons = all_seasons()
     all_season_data = []
     path_dir = cached_data_dir / "seasons"
     path_dir.mkdir(parents=True, exist_ok=True)
