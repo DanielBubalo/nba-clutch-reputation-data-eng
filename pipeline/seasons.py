@@ -5,9 +5,11 @@ current. Before it tips off (October 1 to opening night) the API simply returns 
 """
 
 from datetime import date
+from pathlib import Path
 
 FIRST_SEASON_START = 2004  # 2004-05, the first season in the project
 NEW_SEASON_MONTH = 10  # October
+SEASON_OVER_MONTH = 7  # July: the regular season ends in April and the playoffs by June
 
 
 def season_label(start_year: int) -> str:
@@ -32,3 +34,20 @@ def all_seasons(today: date | None = None) -> list[str]:
         season_label(year)
         for year in range(FIRST_SEASON_START, current_season_start(today) + 1)
     ]
+
+
+def season_over(season: str) -> date:
+    """The date from which a season's numbers can't change: July 1 after it starts. '2025-26' -> 2026-07-01."""
+    return date(int(season[:4]) + 1, SEASON_OVER_MONTH, 1)
+
+
+def cached_file_is_final(path: Path, season: str) -> bool:
+    """True if this cached file can be reused: its season was already over when it was written.
+
+    The season in progress, and a season cached before it ended, get fetched again. The file's own
+    timestamp records when it was written, so copy caches with timestamps kept (cp -p).
+    """
+    if not path.exists():
+        return False
+    written = date.fromtimestamp(path.stat().st_mtime)
+    return written >= season_over(season)

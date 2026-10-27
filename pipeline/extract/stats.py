@@ -2,7 +2,7 @@ import pandas as pd
 import time
 from pathlib import Path
 from paths import cached_data_dir
-from seasons import all_seasons
+from seasons import all_seasons, cached_file_is_final
 from extract.api import RETRYABLE_ERRORS, fetch_with_retry, raise_if_failures
 from nba_api.stats.endpoints import (
     leaguedashplayerstats,
@@ -20,11 +20,12 @@ def extract_all_seasons(table, file_name: str) -> pd.DataFrame:
     failures = []
     for season in seasons:
         file_path = path_dir / f"{file_name}_{season}.parquet"
-        if (file_path).exists():
+        if cached_file_is_final(file_path, season):
             print(f"{season} file already there")
             df = pd.read_parquet(file_path)
         else:
             try:
+                # Not cached yet, or cached before the season was over (the season in progress)
                 print(f"Pulling {season} now")
                 df = fetch_with_retry(table, season)
                 df.to_parquet(file_path, index=False)
