@@ -15,6 +15,7 @@ from extract.stats import (
 from extract.matchups import primary_defenders_table
 from extract.awards import extract_all_player_awards
 from checks import validation, check_mismatch
+from paths import print_environment
 from load.utils import (
     save_table,
     load_table,
@@ -167,6 +168,8 @@ def save_and_load(df: pd.DataFrame, table_name: str, columns: list[str]):
 
 
 def main() -> None:
+    print_environment()
+
     # Creates the database if it's not already there
     init_db()
 

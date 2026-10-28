@@ -15,3 +15,9 @@ db_path = Path(
 cached_data_dir = Path(
     os.environ.get("NBA_CACHE_DIR", pipeline_root / "cached_data")
 ).resolve()
+
+
+def print_environment() -> None:
+    """Printed first by every pipeline script, so a run can't write to the wrong database unnoticed."""
+    print(f"Database: {db_path}")
+    print(f"Cache:    {cached_data_dir}")

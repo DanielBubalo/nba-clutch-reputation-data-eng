@@ -3,9 +3,11 @@ from checks import check_mismatch
 from load.utils import save_table, load_table, fill_missing_players
 from extract.static import players_table
 import time
+from paths import print_environment
 
 
 def main() -> None:
+    print_environment()
     players_df = players_table()
 
     clutch_shots_df = extract_all_shots("clutch_shots")
