@@ -75,8 +75,11 @@ x-airflow-common:
     # for other purpose (development, test and especially production usage) build/extend Airflow image.
     _PIP_ADDITIONAL_REQUIREMENTS: ''
     # The following line can be used to set a custom config file, stored in the local config folder
-    AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
-    NBA_DB_PATH: '/opt/airflow/project/nba_clutch.duckdb'
+    AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg' # Which environment the pipeline uses, as paths inside the project folder. With nothing set,
+    # it's the presentation database and the original cache. To switch Airflow to the live
+    # environment, set NBA_DB_FILE and NBA_CACHE_FOLDER in airflow/.env (see the README).
+    NBA_DB_PATH: '/opt/airflow/project/${NBA_DB_FILE:-nba_clutch.duckdb}'
+    NBA_CACHE_DIR: '/opt/airflow/project/${NBA_CACHE_FOLDER:-pipeline/cached_data}'
     # For the pipeline agent's failure reports (agent_callbacks.py). The key comes from your shell or airflow/.env.
     AIRFLOW_API_URL: 'http://airflow-apiserver:8080'
     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
