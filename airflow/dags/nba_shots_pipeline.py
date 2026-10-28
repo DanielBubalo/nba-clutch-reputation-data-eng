@@ -10,8 +10,9 @@ DBT = "/home/airflow/dbt_venv/bin/dbt"
 with DAG(
     dag_id="nba_clutch_shots",
     start_date=datetime(2024, 1, 1),
-    schedule=None,
+    schedule=None,  # started by nba_clutch_pipeline, never on its own
     catchup=False,
+    max_active_runs=1,  # DuckDB allows a single writer
     # Any failed task gets a diagnosis report from the pipeline agent (see agent_callbacks.py).
     default_args={"on_failure_callback": diagnose_failure},
 ) as dag:
