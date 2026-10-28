@@ -15,7 +15,14 @@ from extract.stats import (
 from extract.matchups import primary_defenders_table
 from extract.awards import extract_all_player_awards
 from checks import validation, check_mismatch
-from load.utils import save_table, load_table, fill_missing_players, init_db
+from paths import print_environment
+from load.utils import (
+    save_table,
+    load_table,
+    replace_seasons,
+    fill_missing_players,
+    init_db,
+)
 
 
 # One season based raw table: how to extract it, where to load it,
@@ -161,6 +168,8 @@ def save_and_load(df: pd.DataFrame, table_name: str, columns: list[str]):
 
 
 def main() -> None:
+    print_environment()
+
     # Creates the database if it's not already there
     init_db()
 
@@ -175,12 +184,14 @@ def main() -> None:
     save_and_load(players_df, "players", ["id", "full_name"])
     save_and_load(teams_df, "teams", ["id", "abbreviation", "full_name"])
 
-    # Every season based table: extract, backfill missing players, save, load
+    # Every season based table: extract, backfill missing players, save, then load
+    # incrementally: only the seasons fetched this run, or missing from the table, are replaced
     extracted = {}
     for spec in SEASON_TABLES:
-        df = extract_all_seasons(spec.fetch, spec.cache_name)
+        df, fetched = extract_all_seasons(spec.fetch, spec.cache_name)
         players_df = backfill_players(df, players_df, spec.player_keys, spec.cache_name)
-        save_and_load(df, spec.table_name, spec.columns)
+        file_path = save_table(df, spec.table_name)
+        replace_seasons(spec.table_name, file_path, spec.columns, fetched)
         extracted[spec.cache_name] = df
 
     # Awards are pulled per player, using the player IDs from advanced stats

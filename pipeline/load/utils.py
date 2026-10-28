@@ -41,6 +41,53 @@ def load_table(
             )
 
 
+# Incremental load for season tables: replaces only the seasons that changed, in one transaction.
+# A season is replaced if it was fetched from the API this run, or if the table doesn't have it yet
+# (a new database gets everything). Finished seasons already in the table are never rewritten, and
+# deleting before inserting means a row that dropped out of the API doesn't linger. A season with no
+# rows in the file is left alone, so an empty response can't wipe stored data.
+def replace_seasons(
+    table_name: str, file_path: Path, columns: list, fetched_seasons: list[str]
+) -> list[str]:
+    column_list = ", ".join(f'"{col}"' for col in columns)
+    with duckdb.connect(str(db_path)) as con:
+        in_file = {
+            row[0]
+            for row in con.execute(
+                "SELECT DISTINCT SEASON FROM read_parquet(?)", [str(file_path)]
+            ).fetchall()
+        }
+        in_table = {
+            row[0]
+            for row in con.execute(
+                f"SELECT DISTINCT SEASON FROM {table_name}"
+            ).fetchall()
+        }
+        to_replace = sorted(in_file & (set(fetched_seasons) | (in_file - in_table)))
+        if not to_replace:
+            print(f"{table_name}: no seasons changed")
+            return []
+        con.execute("BEGIN TRANSACTION")
+        try:
+            con.execute(
+                f"DELETE FROM {table_name} WHERE list_contains(?, SEASON)", [to_replace]
+            )
+            con.execute(
+                f"""INSERT INTO {table_name} ({column_list}) SELECT {column_list}
+                    FROM read_parquet(?) WHERE list_contains(?, SEASON)""",
+                [str(file_path), to_replace],
+            )
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+    label = (
+        ", ".join(to_replace) if len(to_replace) <= 3 else f"{len(to_replace)} seasons"
+    )
+    print(f"{table_name}: replaced {label}")
+    return to_replace
+
+
 # Adds backfill of data that is missing between dimension and fact tables
 def find_missing_rows(
     fact_df: pd.DataFrame,

@@ -2,6 +2,7 @@ import pandas as pd
 import time
 from pathlib import Path
 from paths import cached_data_dir
+from seasons import all_seasons, cached_file_is_final
 from extract.api import RETRYABLE_ERRORS, fetch_with_retry, raise_if_failures
 from nba_api.stats.endpoints import (
     leaguedashplayerstats,
@@ -10,23 +11,28 @@ from nba_api.stats.endpoints import (
 )
 
 
-# Collects the data from the tables below and loops through every season
-def extract_all_seasons(table, file_name: str) -> pd.DataFrame:
-    seasons = [f"{str(season)}-{str(season + 1)[-2:]}" for season in range(2004, 2026)]
+# Collects the data from the tables below and loops through every season.
+# Returns the data and the seasons that were fetched from the API this run (not from the cache),
+# so the load can replace just those.
+def extract_all_seasons(table, file_name: str) -> tuple[pd.DataFrame, list[str]]:
+    seasons = all_seasons()
     all_season_data = []
+    fetched = []
     path_dir = cached_data_dir / "seasons"
     path_dir.mkdir(parents=True, exist_ok=True)
     failures = []
     for season in seasons:
         file_path = path_dir / f"{file_name}_{season}.parquet"
-        if (file_path).exists():
+        if cached_file_is_final(file_path, season):
             print(f"{season} file already there")
             df = pd.read_parquet(file_path)
         else:
             try:
+                # Not cached yet, or cached before the season was over (the season in progress)
                 print(f"Pulling {season} now")
                 df = fetch_with_retry(table, season)
                 df.to_parquet(file_path, index=False)
+                fetched.append(season)
                 time.sleep(0.5)
             except RETRYABLE_ERRORS as error:
                 print(f"Error pulling {season}: {type(error).__name__}")
@@ -35,7 +41,7 @@ def extract_all_seasons(table, file_name: str) -> pd.DataFrame:
         all_season_data.append(df)
     raise_if_failures(failures, file_name)
     result = pd.concat(all_season_data)
-    return result
+    return result, fetched
 
 
 # Extracts data from the leaguedashplayerstats endpoint (advanced season stats), per given season

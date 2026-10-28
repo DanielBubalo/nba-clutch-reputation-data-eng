@@ -11,12 +11,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import anthropic
+import anthropic  # type: ignore
 import duckdb
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import streamlit as st
+import plotly.express as px  # type: ignore
+import plotly.graph_objects as go  # type: ignore
+import streamlit as st  # type: ignore
 
 from court import draw_court
 from hexbin import glowing_chart_html, hex_stats, hexbin_figure
@@ -49,11 +49,14 @@ from style import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-DB_PATH = ROOT / "nba_clutch.duckdb"
 sys.path.insert(
     0, str(ROOT)
 )  # the agent package lives at the project root, next to dashboard/
 from agent import analyst  # noqa: E402
+
+DB_PATH = (
+    analyst.DB_PATH
+)  # one source of truth: the agent's path, which follows NBA_DB_PATH
 
 REPO_URL = "https://github.com/DanielBubalo/nba-clutch-reputation-data-eng"
 
@@ -223,7 +226,7 @@ with st.sidebar:
     built = datetime.fromtimestamp(DB_PATH.stat().st_mtime)
     st.caption(
         f"Data: nba_api, regular seasons {ALL_SEASONS[0]} to {ALL_SEASONS[-1]}. "
-        f"Database last built {built:%b %d, %Y at %H:%M}. "
+        f"Database `{DB_PATH.name}`, last built {built:%b %d, %Y at %H:%M}. "
         f"[Source code and method]({REPO_URL})"
     )
 

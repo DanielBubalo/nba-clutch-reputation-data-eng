@@ -1,9 +1,8 @@
 import pandas as pd
 import duckdb
 import time
-import requests
-import json
 from paths import cached_data_dir, db_path
+from seasons import cached_file_is_final
 from extract.api import RETRYABLE_ERRORS, fetch_with_retry, raise_if_failures
 from nba_api.stats.endpoints import ShotChartDetail
 
@@ -46,7 +45,7 @@ def extract_all_shots(file_name: str) -> pd.DataFrame:
         player_id = row["player_id"]
         season = row["season"]
         file_path = path_dir / f"{file_name}_{player_id}_{season}.parquet"
-        if (file_path).exists():
+        if cached_file_is_final(file_path, season):
             print(f"{player_id} {season} file already there")
             df = pd.read_parquet(file_path)
         else:
