@@ -47,7 +47,7 @@ All three stages are orchestrated by two Airflow DAGs, running in a local Docker
 
 ## Data Sources
 
-All data comes from the unofficial `nba_api` Python package, covering Regular Season data from the 2004-05 season through 2025-26:
+All data comes from the unofficial `nba_api` Python package, covering Regular Season data from the 2004-05 season to the current one:
 
 | Endpoint | Data |
 |---|---|
@@ -72,6 +72,8 @@ data_eng_project/
         load/            — save/load utilities, missing-player backfill logic
         main.py          — orchestrates the full raw EL run
         load_shots.py    — separate script for shot extraction (see Architecture)
+        seasons.py       — which seasons exist, and when a cached file is final (worked out from the date)
+        paths.py         — database and cache locations, set by NBA_DB_PATH and NBA_CACHE_DIR
         checks.py        — data validation helpers
         cached_data/     — per-call parquet cache, avoids re-hitting the API on reruns (gitignored)
     dbt/
@@ -90,7 +92,11 @@ data_eng_project/
         pipeline_audit.jsonl — every action the pipeline agent proposed and took (gitignored)
         ask_log.jsonl        — every question asked in the dashboard's chat, with how it ended (gitignored)
     tests/
-        test_pipeline_agent.py — automated tests for the pipeline agent's guardrails, against a fake Airflow
+        test_pipeline_agent.py    — the pipeline agent's guardrails, against a fake Airflow
+        test_seasons.py           — the season list and the cache freshness rules
+        test_load.py              — incremental season loads, on a throwaway database
+        test_awards.py            — which players' awards get refetched, with a fake API
+        test_pipeline_schedule.py — the main DAG's schedule, and its guard for the presentation database
     dashboard/
         app.py           — Streamlit dashboard: overview, leaderboards, player explorer, shot chart, Ask the data, guide
         court.py         — draws an NBA half-court in nba_api's shot coordinates
@@ -105,6 +111,7 @@ data_eng_project/
             nba_pipeline.py        — extract, dbt build, then triggers the shots DAG
             nba_shots_pipeline.py  — shot extraction and the full dbt build
             agent_callbacks.py     — on any task failure, runs the pipeline agent and saves a report
+            pipeline_schedule.py   — the main DAG's schedule, from airflow/.env
         Dockerfile                    — custom Airflow image with project dependencies
         requirements-dbt.txt          — dbt packages, installed into a separate venv in the image
         requirements.txt              — pipeline packages, installed with Airflow's constraints file
@@ -122,6 +129,7 @@ data_eng_project/
     requirements.txt     — pinned Python dependencies
     nba_schema.sql       — full raw table DDL (idempotent, run on every main.py run)
     nba_clutch.duckdb    — the database itself, created by the pipeline (gitignored)
+    live/                — the live environment's database and cache (gitignored; see Live Data and Environments)
 ```
 
 ## Setup & Running
@@ -156,7 +164,9 @@ docker compose build              # builds the custom image with project depende
 docker compose up airflow-init    # one-time setup
 docker compose up -d              # starts the full stack
 ```
-Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (default login: `airflow` / `airflow`). The pipeline is split into two DAGs. `nba_clutch_pipeline` runs `main.py → dbt deps → dbt build --exclude tag:shots`, then triggers `nba_clutch_shots`, which runs `load_shots.py → dbt build` so shot models are rebuilt and tested on the freshly loaded shots.
+Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (default login: `airflow` / `airflow`). The pipeline is split into two DAGs. `nba_clutch_pipeline` runs `main.py → dbt deps → dbt build --exclude tag:shots`, then triggers `nba_clutch_shots`, which runs `load_shots.py → dbt build` so shot models are rebuilt and tested on the freshly loaded shots. 
+
+To keep a separate database that follows the season in progress, optionally on a daily schedule, see [Live Data and Environments](#live-data-and-environments).
 
 <details>
 <summary><b>Why a custom Airflow image and a separate dbt venv?</b></summary>
@@ -164,6 +174,61 @@ Then trigger the `nba_clutch_pipeline` DAG from the UI at `localhost:8080` (defa
 Airflow runs on a custom image (`airflow/Dockerfile`). Pipeline packages (`airflow/requirements.txt`) are installed with Airflow's official constraints file, so they can't shift Airflow's own tested dependencies. dbt is installed in a separate virtual environment (`airflow/requirements-dbt.txt`, at `/home/airflow/dbt_venv`) because its dependencies conflict with Airflow's (for example, dbt-core requires `pathspec<1.1` while Airflow pins 1.1.1); the DAGs call dbt by that path. Versions are pinned identically to the root `requirements.txt`, so local and Airflow runs use the same code, with one exception: pyarrow isn't listed in `airflow/requirements.txt`, so Airflow's constraints file sets it (25.0.0). The root file pins 25.0.1 because Streamlit, used only by the local dashboard, excludes 25.0.0. `anthropic` is also in `airflow/requirements.txt`, so the failure callback can run the pipeline agent inside the containers; `rich` isn't, because Airflow already pins it (14.3.4) and a second pin would conflict.
 
 </details>
+
+## Live Data and Environments
+
+The findings above come from a fixed database, `nba_clutch.duckdb`. A separate **live** environment follows the season in progress without touching it, and both run the same code.
+
+**Which seasons, and when cached data is refreshed** (`pipeline/seasons.py`):
+
+- **Seasons** run from 2004-05 to the current one, worked out from today's date. A new season counts from October.
+- **Season files** are reused only if their season was over (July 1 after it started) when they were written. So the season in progress is fetched again on every run, and a season cached mid-year is fetched once more after it ends, then becomes final.
+- **Awards** are refreshed once each October, for players from the current or last season. A tier counts awards from the season after they're won, so a file written after the season starts already holds every award that counts. Players from earlier seasons keep their files.
+- **Shots** follow the season rule, per player-season.
+
+**Incremental loads** (`replace_seasons` in `pipeline/load/utils.py`). Each season table replaces only the seasons fetched this run, or missing from the table, by deleting and reinserting them in one transaction:
+
+- **A new database gets everything,** and an up-to-date one only the season in progress.
+- **Finished seasons are never rewritten.**
+- **A row that drops out of the API doesn't linger,** which `INSERT OR REPLACE` alone would allow.
+- **An empty API response can't wipe a stored season.**
+
+Players, teams and awards are upserted (awards are only ever added). The shots table is still reloaded in full, which takes seconds. dbt rebuilds everything, because its models are views plus one small table, so an incremental dbt setup would add complexity for no gain.
+
+**Choosing the environment.** The pipeline, dbt, both agents and the dashboard all read `NBA_DB_PATH` and `NBA_CACHE_DIR`. Unset, they're the presentation database and `pipeline/cached_data`. Every pipeline run prints both as its first two lines, and the dashboard's sidebar names the database file it's reading. Use absolute paths.
+
+**Creating the live environment** (once, from the project root):
+
+```bash
+mkdir -p live
+cp -Rp pipeline/cached_data live/cached_data   # -p keeps the file dates the freshness rules read
+export NBA_DB_PATH="$PWD/live/nba_clutch_live.duckdb"
+export NBA_CACHE_DIR="$PWD/live/cached_data"
+```
+
+Then run the four commands under [Run manually](#setup--running) in the same terminal. The first run builds the live database from the cache and fetches the season in progress, plus awards for players from the last two seasons. Later runs fetch only the season in progress. To open the dashboard on it, run `streamlit run dashboard/app.py --server.port 8502` in the same terminal. A new terminal, without the `export` lines, is back on the presentation database.
+
+**Airflow on the live environment.** Add these to `airflow/.env`, then run `docker compose up -d` from `airflow/`:
+
+```
+NBA_DB_FILE=live/nba_clutch_live.duckdb
+NBA_CACHE_FOLDER=live/cached_data
+```
+
+The paths are relative to the project folder, because the containers see it at `/opt/airflow/project`. Check with `docker compose config | grep NBA_` before running anything. Delete both lines and run `docker compose up -d` again to switch back.
+
+**A daily schedule (optional).** Both DAGs are manual by default. To run the live pipeline every day, also add, for example:
+
+```
+NBA_PIPELINE_SCHEDULE="0 14 * * *"
+```
+
+That's 14:00 UTC (Airflow reads cron times in UTC). The shots DAG needs no schedule, because the main DAG starts it. Some safeguards:
+
+- **The schedule is ignored while Airflow points at the presentation database** (`airflow/dags/pipeline_schedule.py`).
+- **Both DAGs allow one run at a time,** since DuckDB allows a single writer.
+- **`catchup=False`** means a missed day leads to one run, not one per day.
+- **Scheduled runs need the machine and Docker running.** Pause the DAG before a live demo.
 
 ## dbt Models
 
@@ -199,9 +264,9 @@ Staging models also have multiple consumers, but they're simple column-renaming 
 
 Every pull request into `main` runs `.github/workflows/dbt-ci.yml` on a fresh GitHub runner. It installs the pinned `requirements.txt`, creates an empty DuckDB database from `nba_schema.sql`, runs `dbt run --empty` to build every model with zero rows, then runs `dbt test`.
 
-The real database isn't in the repo and takes about 3.5 hours to build from the API, so CI checks the code rather than the data: every model's SQL has to run against the actual raw schema, every `ref` has to resolve, and the `player_tier` unit tests run for real on their mocked data. Data tests like `unique` and `not_null` pass trivially on empty tables, so data quality is still checked by the full local build. `equal_rowcount` is skipped in CI because the dbt_utils macro returns NULL instead of 0 on empty tables.
+The real database isn't in the repo and takes about 3.5 hours to build from the API, so CI checks the code rather than the data: every model's SQL has to run against the actual raw schema, every `ref` has to resolve, and the unit tests run for real on their mocked data: the tier rules, the qualifying filter and the sign of `ts_delta`, the historical team-code mapping, and the opponent logic. Data tests like `unique` and `not_null` pass trivially on empty tables, so data quality is still checked by the full local build. `equal_rowcount` is skipped in CI because the dbt_utils macro returns NULL instead of 0 on empty tables.
 
-The same workflow runs `pytest tests/`: 15 tests for the pipeline agent's guardrails against a fake Airflow server, covering approval, every refusal (active run, paused DAG, retry limit, unknown DAG), the audit log, the JSON log format, and diagnose-only mode. They check the code's rules, not the model's judgment, so they need no API key and run in seconds. Run them locally with `pytest tests/ -q`; one was verified by raising the retry limit on purpose and watching it fail.
+The same workflow runs `pytest tests/`: 40 tests that need no API key, database or Airflow, and run in seconds. 15 cover the pipeline agent's guardrails against a fake Airflow server: approval, every refusal (active run, paused DAG, retry limit, unknown DAG), the audit log, the JSON log format, and diagnose-only mode. They check the code's rules, not the model's judgment. The other 25 cover the pipeline's own rules: the season list, the cache freshness rules, incremental loads on a throwaway database, which players' awards are refetched (with a fake API), and the guarded schedule. Run them locally with `pytest tests/ -q`. Each rule was verified by breaking it on purpose and watching its test fail.
 
 ## Findings: Does Clutch Reputation Match Clutch Results?
 
@@ -408,10 +473,10 @@ With no key set, the callback skips quietly. Inside the containers the agent rea
 
 - **Clutch uses the NBA's official definition everywhere:** the last 5 minutes of the 4th quarter or overtime, with the score within 5 points. Both the clutch stats (`LeagueDashPlayerClutch`) and the clutch shots (`ShotChartDetail`) request this definition from the API, and a dbt test checks that every player-season's shot count equals its official clutch field-goal attempts. An earlier version filtered shots by time only, which ignored the score and captured about six minutes instead of five; for LeBron James in 2015-16, that produced 205 "clutch" shots where the official count was 92.
 - **No minimum on clutch shot attempts.** A player-season qualifies with 15+ clutch games and more than 100 season field-goal attempts, but some take very few clutch shots (as few as 7 among Stars), so the most extreme `ts_delta` values rest on tiny samples.
-- **Season range is hardcoded** to 2004-05 through 2025-26.
-- **Load strategy is full-reprocess**, not incrementally extracted. Stats tables are loaded with `INSERT OR REPLACE`, and the shots table is emptied and reloaded in a single transaction on every run (with a versioned shot cache), so stale shots can't linger. Every run re-checks all cached data rather than only pulling genuinely new records.
+- **Only season tables load incrementally.** The shots table is emptied and reloaded in a single transaction on every run (with a versioned shot cache), so stale shots can't linger, and dbt rebuilds every model. Both take seconds at this size.
 - **20 of 159,335 clutch shots** have no recorded shot location.
-- **Current-season handling isn't implemented** — there's no logic to distinguish an in-progress season from a completed one, so a season fetched mid-year would be cached as if final.
+- **In-season shots are refetched in full.** Once players start qualifying in the season in progress, each run fetches all of their clutch shots again. That's a handful of calls early in the season and could be a few hundred by spring; fetching only shots since the last game loaded is a possible follow-up.
+- **The opponent fallback hasn't been checked on real data.** In `shots_with_opponent`, a shot whose team ID matches neither team in the game is given the home team as its opponent. Unit tests cover the normal cases; how often the fallback happens in the real data is still to be checked.
 - **Matchup data covers 2017-18 onward.** 2016-17 has only a small partial sample (about 3,500 rows, against 120,000 or more per later season), and earlier seasons have none, so `matchup_analysis` can't answer matchup questions before then.
 - **Only qualifying seasons reach the dashboard.** `player_clutch_performance` keeps player-seasons with 15+ clutch games and more than 100 season field-goal attempts, and shots are only loaded for those seasons. So the Player explorer skips a player's non-qualifying seasons, and a season comparison on the Shot chart can only use qualifying seasons.
 - **Season comparisons are coarse by design.** Five court zones give each zone enough shots to compare, but they hide finer patterns (left vs. right side, for example), and a single season's zones can still rest on a handful of shots. The hover and the table show the raw makes and attempts behind every colour.
