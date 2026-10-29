@@ -12,7 +12,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-import pytest
+import pytest  # type: ignore
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
 import pipeline_agent as pa  # type: ignore # noqa: E402
