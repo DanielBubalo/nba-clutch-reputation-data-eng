@@ -8,9 +8,9 @@ import math
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
-from plotly.colors import sample_colorscale
-from plotly.offline import get_plotlyjs_version
+import plotly.graph_objects as go  # type: ignore
+from plotly.colors import sample_colorscale  # type: ignore
+from plotly.offline import get_plotlyjs_version  # type: ignore
 
 HEX_RADIUS = 13  # centre to corner, in tenths of a foot: hexagons about 2.3 ft across
 PRIOR_SHOTS = (
@@ -307,8 +307,8 @@ GLOW_PAGE = """<!doctype html>
 # Shared by both shot chart pages (hexagons here, zones in zones.py). A chart built inside a hidden tab
 # has no size, so Plotly measures all text as zero and misplaces it (the colour bar title lands on the
 # bar). So the first real draw waits until the page actually has a size, and the chart redraws whenever
-# it goes from hidden to shown, which the browser reports as a resize. Each page defines chart and
-# onFirstShow() before this runs.
+# it goes from hidden to shown, which the browser reports as a resize. Each page defines chart,
+# onFirstShow() and afterPlot() (reapplies the animation classes after a draw) before this runs.
 SHOW_WHEN_VISIBLE_JS = """
 var CONFIG = __CONFIG__;
 var firstShowStarted = false, firstShowDone = false, resizeTimer = null;
@@ -321,6 +321,11 @@ function redraw() {
   // was built while its tab was open.
   return new Promise(function (resolve) { requestAnimationFrame(resolve); }).then(function () {
     return Plotly.newPlot(chart, chart.data, chart.layout, CONFIG);
+  }).then(function () {
+    // newPlot throws away the old SVG (and the classes on it) and removes every chart.on listener,
+    // so hook afterPlot back up and run it once for this draw, which the old listener never saw.
+    chart.on('plotly_afterplot', afterPlot);
+    afterPlot();
   });
 }
 function firstShow() {
@@ -364,8 +369,9 @@ function markGlowing() {
     if (core) { core.classList.add('glow-core'); core.style.animationDelay = delay; }
   });
 }
+function afterPlot() { markGlowing(); }
 markGlowing();
-chart.on('plotly_afterplot', markGlowing);
+chart.on('plotly_afterplot', afterPlot);
 function onFirstShow() { document.body.classList.add('ready'); }
 """ + SHOW_WHEN_VISIBLE_JS
 

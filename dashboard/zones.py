@@ -11,8 +11,8 @@ import math
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
-from plotly.colors import sample_colorscale, unlabel_rgb
+import plotly.graph_objects as go  # type: ignore
+from plotly.colors import sample_colorscale, unlabel_rgb  # type: ignore
 
 from hexbin import DIFF_RANGE, PLOTLY_JS, PRIOR_SHOTS, SHOW_WHEN_VISIBLE_JS, colorbar
 
@@ -335,7 +335,8 @@ function start() {
   markZones(true);
   setTimeout(function () { document.body.classList.add('settled'); }, 900);
 }
-chart.on('plotly_afterplot', function () { if (shown) markZones(false); });
+function afterPlot() { if (shown) markZones(false); }
+chart.on('plotly_afterplot', afterPlot);
 function onFirstShow() { start(); }
 """ + SHOW_WHEN_VISIBLE_JS
 
